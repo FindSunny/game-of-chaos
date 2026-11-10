@@ -28,6 +28,7 @@
           <button id="mode-wuxing" class="mode-btn" type="button">五行生克</button>
           <button id="mode-async" class="mode-btn" type="button">异步因果</button>
           <button id="mode-infinite" class="mode-btn" type="button">无限生命</button>
+          <button id="mode-particle" class="mode-btn" type="button">粒子生命</button>
         </div>
 
         <div class="rule-bar" id="rule-life">
@@ -77,9 +78,9 @@
             <h2>状态</h2>
             <dl class="stats">
               <div><dt id="stat-gen-label">世代</dt><dd id="stat-gen" class="mono">0</dd></div>
-              <div><dt>存活</dt><dd id="stat-pop" class="mono">0</dd></div>
-              <div><dt>出生</dt><dd id="stat-born" class="mono">0</dd></div>
-              <div><dt>死亡</dt><dd id="stat-died" class="mono">0</dd></div>
+              <div><dt id="stat-pop-label">存活</dt><dd id="stat-pop" class="mono">0</dd></div>
+              <div id="stat-born-card"><dt>出生</dt><dd id="stat-born" class="mono">0</dd></div>
+              <div id="stat-died-card"><dt>死亡</dt><dd id="stat-died" class="mono">0</dd></div>
               <div id="stat-transition-card" class="wide" hidden>
                 <dt id="stat-wide-label">转化</dt><dd id="stat-trans" class="mono">0</dd>
               </div>
@@ -92,6 +93,25 @@
             <h2>生克流向</h2>
             <canvas id="ring" class="ring"></canvas>
             <p class="hint">外圈相生、内圈相克，线宽为本代次数；节点大小是按当前占比。</p>
+          </section>
+
+          <section class="block" id="particle-block" hidden>
+            <h2>粒子生命</h2>
+            <div class="row">
+              <span class="slabel">预设</span>
+              <select id="particle-preset" class="mono"></select>
+            </div>
+            <div class="row">
+              <span class="slabel">数量</span>
+              <input id="particle-count" type="range" min="100" max="1200" step="50" value="400" />
+              <span id="particle-count-val" class="value mono">400</span>
+            </div>
+            <label class="check"><input id="opt-particle-wrap" type="checkbox" /> 边界环绕</label>
+            <p class="hint">
+              离格系统：没有格子，也没有「代」，每帧算粒子两两之间的力。<br />
+              左键点画布撒一把粒子，<kbd>R</kbd> 重新随机。<br />
+              规则与参数取自 HackerPoet 的 Particle-Life。
+            </p>
           </section>
 
           <section class="block" id="brush-block" hidden>

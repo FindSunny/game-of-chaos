@@ -1,11 +1,12 @@
 # Game of Chaos
 
-元胞自动机沙盒。四套模式共用同一个渲染与交互层：
+元胞自动机沙盒。五种模式共用同一套渲染、相机与交互层：
 
 - **生命游戏**：二态（活/死），B/S 规则可调，全局同步，有限网格
 - **五行生克**：六态（空 + 木火土金水），按「生我 / 克我」的邻域计数演化，全局同步
 - **异步因果**：生命游戏规则，但去掉全局时钟，改成事件驱动 + 光锥约束
 - **无限生命**：生命游戏规则 + 无限画布（稀疏存储，坐标可负，没有边界）
+- **粒子生命**：离格系统，没有格子也没有「代」，每帧算粒子两两之间的力
 
 零构建：没有打包器、没有 npm 依赖，浏览器直接跑 ES 模块。
 
@@ -125,6 +126,19 @@ npx serve .
 五行生克没有无限模式，因为「空」在那里本身是要被填充的状态——场会无限向外扩张，
 不存在「全部演化完」这回事。异步因果同理，每格一个时钟，无限格就是无限事件。
 
+### 粒子生命
+
+规则搬自 HackerPoet（CodeParade）的 Particle-Life，参数与力曲线与 fnky/particle-life 的 JS 版本一致。
+它不是元胞自动机：粒子有连续位置和速度，没有网格、没有「代」。
+
+- **类型矩阵**：任意两种类型 (i, j) 之间存 `attract / minR / maxR`。对角线（同类型）永远排斥，
+  半径对称、吸引力不对称——不对称是追逃行为的来源。
+- **力曲线**：`minR` 处为 0，中点最强，`maxR` 处回到 0；`r < minR` 时用软核强制排斥，防止近距离力爆炸。
+- **更新**：速度累加后积分位置，再乘阻尼；边界可环绕或反弹。
+
+代价是 O(N²)：400 个粒子每帧 16 万次配对。默认给「Gliders」预设 + 环绕，最容易看出团块结构；
+「Balanced」的力更弱，看起来像带小团簇的气体。
+
 ## 结构
 
 ```
@@ -137,6 +151,7 @@ js/core/wuxing.js     五行生克引擎（六态、生克关系、流量统计�
 js/core/async-engine.js 异步因果引擎（事件堆、本地时钟、光锥读取、可复现调度）
 js/core/sparse-world.js 稀疏世界（Map 存储，坐标可负，无边界）
 js/core/sparse-life.js  无限生命引擎（候选集推进，代价正比于活细胞）
+js/core/particle-life.js 粒子生命引擎（类型矩阵、力曲线、O(N²) 配对）
 js/ui/renderer.js     Canvas 渲染、相机（缩放/平移）、坐标拾取、单态隔离、本地时间着色
 js/ui/patterns.js     图样库（字符画 + RLE 解码）
 js/ui/ring.js         五行流向环
@@ -147,6 +162,7 @@ tests/engine.test.mjs 生命游戏回归测试
 tests/wuxing.test.mjs 五行引擎回归测试
 tests/async.test.mjs  异步引擎回归测试
 tests/sparse.test.mjs 稀疏世界与无限生命回归测试
+tests/particle.test.mjs 粒子生命回归测试
 ```
 
 三个引擎接口对齐（`step` 或 `advance` / `stats` / `generation` / `age` / `setBoard`），
@@ -159,6 +175,7 @@ node tests/engine.test.mjs
 node tests/wuxing.test.mjs
 node tests/async.test.mjs
 node tests/sparse.test.mjs
+node tests/particle.test.mjs
 # 或者
 npm test
 ```
@@ -213,6 +230,7 @@ sudo systemctl reload caddy
 - [x] 光锥交互演示（`docs/light-cone.html`）
 - [x] 画布缩放与平移
 - [x] 无限画布（仅生命游戏，稀疏存储）
+- [x] 粒子生命（离格系统，O(N²) 配对）
 
 ## 说明
 

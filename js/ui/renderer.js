@@ -26,7 +26,7 @@ export class Renderer {
     /** 相机：zoom = 每格多少像素，ox/oy = 网格左上角在画布上的位置 */
     this.camera = { zoom: 8, ox: 0, oy: 0 };
     this.fitZoom = 8;
-    this.minZoom = 1;
+    this.minZoom = 0.15;
     this.maxZoom = 40;
 
     // 年龄色阶：索引越大表示活得越久
@@ -125,6 +125,80 @@ export class Renderer {
     this.fitZoom = this.camera.zoom;
     this.camera.ox = Math.round(cw / 2 - wx * this.camera.zoom);
     this.camera.oy = Math.round(ch / 2 - wy * this.camera.zoom);
+  }
+
+  /** 把一块矩形世界（连续坐标，无格子）装进画布并居中 */
+  fitWorld(width, height) {
+    const cw = this.canvas.clientWidth;
+    const ch = this.canvas.clientHeight;
+    if (!cw || !ch) return;
+    const zoom = Math.max(
+      this.minZoom,
+      Math.min(this.maxZoom, Math.min(cw / width, ch / height) * 0.95),
+    );
+    this.fitZoom = zoom;
+    this.centerOn(width / 2, height / 2, zoom);
+  }
+
+  /**
+   * 粒子世界：连续坐标，逐粒子画圆
+   * @param {import('../core/particle-life.js').ParticleLifeEngine} engine
+   * @param {{showGrid: boolean, radius: number, hover: {x:number,y:number}|null, ghost: null}} opts
+   */
+  drawParticles(engine, opts) {
+    const { ctx } = this;
+    const cw = this.canvas.clientWidth;
+    const ch = this.canvas.clientHeight;
+    if (!cw || !ch) return;
+
+    this.measure();
+    const { cell: zoom, ox, oy } = this;
+
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.fillStyle = '#05080c';
+    ctx.fillRect(0, 0, cw, ch);
+
+    // 世界边界
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ox + 0.5, oy + 0.5, engine.width * zoom - 1, engine.height * zoom - 1);
+
+    const r = Math.max(1, opts.radius * zoom);
+    const colors = engine.colors;
+    let currentType = -1;
+
+    ctx.globalAlpha = 0.92;
+    for (let i = 0; i < engine.count; i++) {
+      const px = ox + engine.x[i] * zoom;
+      const py = oy + engine.y[i] * zoom;
+      if (px < -r || py < -r || px > cw + r || py > ch + r) continue;
+
+      const type = engine.type[i];
+      if (type !== currentType) {
+        ctx.fillStyle = colors[type] || '#35e0c8';
+        currentType = type;
+      }
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    if (opts.hover) {
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.5)';
+      ctx.beginPath();
+      ctx.arc(ox + opts.hover.x * zoom, oy + opts.hover.y * zoom, r * 2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  /** 连续坐标拾取（粒子模式用） */
+  pickWorld(ev) {
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: (ev.clientX - rect.left - this.ox) / this.cell,
+      y: (ev.clientY - rect.top - this.oy) / this.cell,
+    };
   }
 
   /**

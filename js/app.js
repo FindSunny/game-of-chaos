@@ -14,6 +14,7 @@ import { WuxingEngine, WUXING_STATES, PARAM_PRESETS, seedWorld } from './core/wu
 import { AsyncLifeEngine } from './core/async-engine.js';
 import { SparseWorld } from './core/sparse-world.js';
 import { SparseLifeEngine } from './core/sparse-life.js';
+import { ParticleLifeEngine, PARTICLE_PRESETS } from './core/particle-life.js';
 import { Renderer } from './ui/renderer.js';
 import { PATTERNS, rotatePattern } from './ui/patterns.js';
 import { drawRing } from './ui/ring.js';
@@ -49,6 +50,10 @@ const DEFAULTS = {
   asyncRate: 2, // 每格每秒更新次数
   asyncC: 1, // 光速 格/秒
   localTime: true, // 按本地时间着色
+  // 粒子生命
+  particlePreset: 'Gliders',
+  particleCount: 400,
+  particleWrap: true,
 };
 
 /** 本地时间着色：越绿越新，越蓝越落后 */
@@ -63,7 +68,9 @@ function loadSettings() {
       merged.width = DEFAULTS.width;
       merged.height = DEFAULTS.height;
     }
-    if (!['life', 'wuxing', 'async', 'infinite'].includes(merged.mode)) merged.mode = DEFAULTS.mode;
+    if (!['life', 'wuxing', 'async', 'infinite', 'particle'].includes(merged.mode)) {
+      merged.mode = DEFAULTS.mode;
+    }
     return merged;
   } catch {
     return { ...DEFAULTS };
@@ -116,6 +123,13 @@ function createEngine() {
   if (state.mode === 'infinite') {
     return new SparseLifeEngine(board, lifeRule);
   }
+  if (state.mode === 'particle') {
+    return new ParticleLifeEngine(1200, 800, {
+      preset: state.particlePreset,
+      count: state.particleCount,
+      wrap: state.particleWrap,
+    });
+  }
   return new Engine(board, lifeRule);
 }
 
@@ -162,6 +176,11 @@ function loop(now) {
   if (ui.running) {
     if (state.mode === 'async') {
       tick(dt);
+    } else if (state.mode === 'particle') {
+      // 粒子生命每帧走一步就是原版速度；速度滑杆变成「每帧几步」
+      const steps = Math.max(1, Math.round(state.speed / 10));
+      for (let k = 0; k < steps; k++) engine.step();
+      recordHistory(engine.stats.population);
     } else {
       const interval = 1000 / state.speed;
       accumulator += dt;
@@ -191,6 +210,11 @@ function asyncColor(index) {
 }
 
 function render() {
+  if (state.mode === 'particle') {
+    renderer.drawParticles(engine, { showGrid: false, radius: 5, hover: ui.hover });
+    return;
+  }
+
   const asyncMode = state.mode === 'async';
   const infinite = state.mode === 'infinite';
   renderer.draw(board, engine, {
@@ -214,6 +238,12 @@ function setText(el, value) {
 function syncStats() {
   setText($('stat-gen'), engine.generation);
   setText($('stat-pop'), engine.stats.population);
+
+  if (state.mode === 'particle') {
+    setText($('stat-trans'), engine.stats.types);
+    return;
+  }
+
   setText($('stat-born'), engine.stats.births);
   setText($('stat-died'), engine.stats.deaths);
 
@@ -346,7 +376,9 @@ function cameraCenter() {
 
 /** 按当前模式重新播种 */
 function randomizeBoard() {
-  if (state.mode === 'wuxing') {
+  if (state.mode === 'particle') {
+    engine.reset();
+  } else if (state.mode === 'wuxing') {
     seedWorld(board, state.density);
   } else if (board.isSparse) {
     // 撒点范围跟着视口走：缩得越小、视野越大，撒出来的初始网格也越大，
@@ -371,26 +403,37 @@ function applyModeUI() {
   const wuxing = state.mode === 'wuxing';
   const asyncMode = state.mode === 'async';
   const infinite = state.mode === 'infinite';
+  const particle = state.mode === 'particle';
   const life = state.mode === 'life';
 
-  // 无限模式跑的还是生命游戏规则，B/S 输入框同样有效
+  // 无限模式跑的还是生命游戏规则，B/S 输入框同样有效；粒子模式没有 B/S
   $('rule-life').hidden = !(life || infinite);
   $('rule-wuxing').hidden = !wuxing;
   $('brush-block').hidden = !wuxing;
   $('wuxing-block').hidden = !wuxing;
   $('ring-block').hidden = !wuxing;
   $('async-block').hidden = !asyncMode;
+  $('particle-block').hidden = !particle;
 
-  $('patterns-block').hidden = wuxing;
-  $('opt-age-row').hidden = wuxing || asyncMode || infinite;
+  $('patterns-block').hidden = wuxing || particle;
+  $('opt-age-row').hidden = wuxing || asyncMode || infinite || particle;
 
-  // 无限世界没有边界也没有固定尺寸，这两项收起来
-  $('opt-wrap').closest('label').hidden = infinite;
-  $('board-size').closest('.row').hidden = infinite;
+  // 无限世界没有边界也没有固定尺寸；粒子模式另有自己的边界开关
+  $('opt-wrap').closest('label').hidden = infinite || particle;
+  $('board-size').closest('.row').hidden = infinite || particle;
+  const densityRow = $('density').closest('.row');
+  if (densityRow) densityRow.hidden = particle;
 
-  $('stat-transition-card').hidden = !wuxing && !asyncMode;
-  $('stat-gen-label').textContent = asyncMode ? '事件数' : '世代';
-  $('stat-wide-label').textContent = asyncMode ? '仿真时间' : '转化';
+  $('stat-born-card').hidden = particle;
+  $('stat-died-card').hidden = particle;
+  $('stat-pop-label').textContent = particle ? '粒子数' : '存活';
+  $('stat-transition-card').hidden = !wuxing && !asyncMode && !particle;
+  $('stat-gen-label').textContent = asyncMode ? '事件数' : particle ? '步数' : '世代';
+  $('stat-wide-label').textContent = asyncMode
+    ? '仿真时间'
+    : particle
+      ? '类型数'
+      : '转化';
 
   $('spark').hidden = wuxing;
   $('flow-chart').hidden = !wuxing;
@@ -399,18 +442,23 @@ function applyModeUI() {
   $('mode-wuxing').classList.toggle('is-active', wuxing);
   $('mode-async').classList.toggle('is-active', asyncMode);
   $('mode-infinite').classList.toggle('is-active', infinite);
+  $('mode-particle').classList.toggle('is-active', particle);
 
   updateWuxingReadout();
   updateSpeedLabel();
   renderBrushChips();
   renderLegend();
   renderPresets();
+  renderParticlePresets();
 }
 
-/** 速度滑杆在异步模式下是倍速，其余模式是「代/秒」 */
+/** 速度滑杆在异步模式下是倍速，粒子模式是每帧步数，其余模式是「代/秒」 */
 function updateSpeedLabel() {
-  $('speed-val').textContent =
-    state.mode === 'async' ? `${(state.speed / 10).toFixed(1)}×` : `${state.speed} 代/秒`;
+  const value =
+    state.mode === 'async' || state.mode === 'particle'
+      ? `${(state.speed / 10).toFixed(1)}×`
+      : `${state.speed} 代/秒`;
+  $('speed-val').textContent = value;
 }
 
 function updateWuxingReadout() {
@@ -423,16 +471,18 @@ function switchMode(mode) {
   setRunning(false);
   ui.pending = null;
 
-  // 无限模式用稀疏世界，其余用稠密网格
+  // 无限模式用稀疏世界，其余用稠密网格；粒子模式不用网格
   board = mode === 'infinite' ? sparseWorld : denseBoard;
   if (mode === 'infinite') sparseWorld.clear();
 
+  engine = createEngine();
+
   // 先把相机摆好，播种才会落在视野中心
-  if (board.isSparse) renderer.centerOn(0, 0, 8);
+  if (mode === 'infinite') renderer.centerOn(0, 0, 8);
+  else if (mode === 'particle') renderer.fitWorld(engine.width, engine.height);
   else renderer.fit(board);
   updateZoomLabel();
 
-  engine = createEngine();
   randomizeBoard();
   applyModeUI();
 
@@ -496,7 +546,8 @@ function updateZoomLabel() {
 }
 
 function fitView() {
-  if (board.isSparse) renderer.centerOn(0, 0, 8);
+  if (state.mode === 'particle') renderer.fitWorld(engine.width, engine.height);
+  else if (board.isSparse) renderer.centerOn(0, 0, 8);
   else renderer.fit(board);
   updateZoomLabel();
   render();
@@ -511,7 +562,7 @@ canvas.addEventListener(
     const px = event.clientX - rect.left;
     const py = event.clientY - rect.top;
     renderer.zoomAt(px, py, Math.exp(-event.deltaY * 0.0015));
-    renderer.clampCamera(board);
+    if (state.mode !== 'particle') renderer.clampCamera(board);
     updateZoomLabel();
     render();
   },
@@ -528,6 +579,14 @@ canvas.addEventListener('pointerdown', (event) => {
     panning = { x: event.clientX - rect.left, y: event.clientY - rect.top, id: event.pointerId };
     canvas.setPointerCapture(event.pointerId);
     canvas.style.cursor = 'grabbing';
+    return;
+  }
+
+  if (state.mode === 'particle') {
+    // 粒子模式：左键点一下就在那里撒一把粒子
+    const world = renderer.pickWorld(event);
+    engine.spawn(world.x, world.y, 24);
+    render();
     return;
   }
 
@@ -554,9 +613,14 @@ canvas.addEventListener('pointermove', (event) => {
     const px = event.clientX - rect.left;
     const py = event.clientY - rect.top;
     renderer.panBy(px - panning.x, py - panning.y);
-    renderer.clampCamera(board);
+    if (state.mode !== 'particle') renderer.clampCamera(board);
     panning = { x: px, y: py, id: panning.id };
     render();
+    return;
+  }
+
+  if (state.mode === 'particle') {
+    ui.hover = renderer.pickWorld(event);
     return;
   }
 
@@ -583,7 +647,7 @@ canvas.addEventListener('pointerup', (event) => {
   if (!ui.painting) return;
   ui.painting = false;
   ui.lastPaint = null;
-  engine.stats.population = board.countAlive();
+  if (!board.isSparse) engine.stats.population = board.countAlive();
   if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
 });
 
@@ -712,6 +776,21 @@ function renderPresets() {
   }
 }
 
+/* ---------- 粒子预设 ---------- */
+
+function renderParticlePresets() {
+  const select = $('particle-preset');
+  if (select.options.length === 0) {
+    for (const name of Object.keys(PARTICLE_PRESETS)) {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      select.appendChild(option);
+    }
+  }
+  select.value = state.particlePreset;
+}
+
 /* ---------- 面板绑定 ---------- */
 
 function applyRule(text) {
@@ -747,6 +826,7 @@ function bindControls() {
   $('mode-wuxing').addEventListener('click', () => switchMode('wuxing'));
   $('mode-async').addEventListener('click', () => switchMode('async'));
   $('mode-infinite').addEventListener('click', () => switchMode('infinite'));
+  $('mode-particle').addEventListener('click', () => switchMode('particle'));
 
   $('rule-apply').addEventListener('click', () => applyRule($('rule-input').value));
   $('rule-input').addEventListener('keydown', (event) => {
@@ -843,6 +923,39 @@ function bindControls() {
     state.localTime = localTime.checked;
     saveSettings();
     render();
+  });
+
+  /* ---------- 粒子模式控件 ---------- */
+
+  const particlePreset = $('particle-preset');
+  particlePreset.addEventListener('change', () => {
+    state.particlePreset = particlePreset.value;
+    if (engine.setOptions) engine.setOptions({ preset: state.particlePreset });
+    saveSettings();
+    render();
+  });
+
+  const particleCount = $('particle-count');
+  particleCount.value = state.particleCount;
+  $('particle-count-val').textContent = state.particleCount;
+  particleCount.addEventListener('input', () => {
+    state.particleCount = Number(particleCount.value);
+    $('particle-count-val').textContent = state.particleCount;
+    if (state.mode === 'particle' && engine.setOptions) {
+      engine.setOptions({ count: state.particleCount });
+    }
+    saveSettings();
+    render();
+  });
+
+  const particleWrap = $('opt-particle-wrap');
+  particleWrap.checked = state.particleWrap;
+  particleWrap.addEventListener('change', () => {
+    state.particleWrap = particleWrap.checked;
+    if (state.mode === 'particle' && engine.setOptions) {
+      engine.setOptions({ wrap: state.particleWrap });
+    }
+    saveSettings();
   });
 
   const wrap = $('opt-wrap');
@@ -960,7 +1073,7 @@ function boot() {
   const resizeObserver = new ResizeObserver(() => {
     // resize 会重置画布像素尺寸（等于清空），必须立刻补画一帧
     renderer.resize();
-    renderer.clampCamera(board);
+    if (state.mode !== 'particle') renderer.clampCamera(board);
     render();
     drawCharts();
   });
@@ -975,7 +1088,8 @@ function boot() {
   // 顺序很重要——先摆相机，再播种，否则撒出来的细胞会偏出视野中心。
   renderer.resize();
   requestAnimationFrame(() => {
-    if (board.isSparse) renderer.centerOn(0, 0, 8);
+    if (state.mode === 'particle') renderer.fitWorld(engine.width, engine.height);
+    else if (board.isSparse) renderer.centerOn(0, 0, 8);
     else renderer.fit(board);
     updateZoomLabel();
 
