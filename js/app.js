@@ -12,6 +12,8 @@ import { Engine } from './core/engine.js';
 import { parseRule, RULE_PRESETS } from './core/rules.js';
 import { WuxingEngine, WUXING_STATES, PARAM_PRESETS, seedWorld } from './core/wuxing.js';
 import { AsyncLifeEngine } from './core/async-engine.js';
+import { SparseWorld } from './core/sparse-world.js';
+import { SparseLifeEngine } from './core/sparse-life.js';
 import { Renderer } from './ui/renderer.js';
 import { PATTERNS, rotatePattern } from './ui/patterns.js';
 import { drawRing } from './ui/ring.js';
@@ -61,7 +63,7 @@ function loadSettings() {
       merged.width = DEFAULTS.width;
       merged.height = DEFAULTS.height;
     }
-    if (!['life', 'wuxing', 'async'].includes(merged.mode)) merged.mode = DEFAULTS.mode;
+    if (!['life', 'wuxing', 'async', 'infinite'].includes(merged.mode)) merged.mode = DEFAULTS.mode;
     return merged;
   } catch {
     return { ...DEFAULTS };
@@ -80,7 +82,11 @@ const state = loadSettings();
 
 /* ---------- 核心对象 ---------- */
 
-const board = new Board(state.width, state.height, state.wrap);
+// 稠密网格和稀疏世界各留一份，切模式时换引用
+const denseBoard = new Board(state.width, state.height, state.wrap);
+const sparseWorld = new SparseWorld();
+let board = state.mode === 'infinite' ? sparseWorld : denseBoard;
+
 const renderer = new Renderer($('board'));
 const canvas = $('board');
 
@@ -106,6 +112,9 @@ function createEngine() {
       rate: state.asyncRate,
       c: state.asyncC,
     });
+  }
+  if (state.mode === 'infinite') {
+    return new SparseLifeEngine(board, lifeRule);
   }
   return new Engine(board, lifeRule);
 }
@@ -183,10 +192,11 @@ function asyncColor(index) {
 
 function render() {
   const asyncMode = state.mode === 'async';
+  const infinite = state.mode === 'infinite';
   renderer.draw(board, engine, {
     palette: state.mode === 'wuxing' ? WUXING_PALETTE : null,
     isolate: state.mode === 'wuxing' ? state.isolate : 0,
-    colorByAge: state.age && !asyncMode,
+    colorByAge: state.age && !asyncMode && !infinite,
     colorFor: asyncMode ? asyncColor : null,
     showGrid: state.grid,
     hover: ui.hover,
@@ -324,10 +334,23 @@ function clearBoard() {
   drawCharts();
 }
 
+/** 画布中心对应的世界坐标，无限模式下撒点用 */
+function cameraCenter() {
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  return {
+    x: Math.round((cw / 2 - renderer.camera.ox) / renderer.camera.zoom),
+    y: Math.round((ch / 2 - renderer.camera.oy) / renderer.camera.zoom),
+  };
+}
+
 /** 按当前模式重新播种 */
 function randomizeBoard() {
   if (state.mode === 'wuxing') {
     seedWorld(board, state.density);
+  } else if (board.isSparse) {
+    const center = cameraCenter();
+    board.randomize(state.density, Math.random, center.x, center.y, 120, 80);
   } else {
     board.randomize(state.density);
   }
@@ -342,18 +365,23 @@ function randomizeBoard() {
 function applyModeUI() {
   const wuxing = state.mode === 'wuxing';
   const asyncMode = state.mode === 'async';
+  const infinite = state.mode === 'infinite';
   const life = state.mode === 'life';
 
-  $('rule-life').hidden = !life;
+  // 无限模式跑的还是生命游戏规则，B/S 输入框同样有效
+  $('rule-life').hidden = !(life || infinite);
   $('rule-wuxing').hidden = !wuxing;
   $('brush-block').hidden = !wuxing;
   $('wuxing-block').hidden = !wuxing;
   $('ring-block').hidden = !wuxing;
   $('async-block').hidden = !asyncMode;
 
-  // 异步模式跑的还是生命游戏规则，图样库照常可用
   $('patterns-block').hidden = wuxing;
-  $('opt-age-row').hidden = wuxing || asyncMode;
+  $('opt-age-row').hidden = wuxing || asyncMode || infinite;
+
+  // 无限世界没有边界也没有固定尺寸，这两项收起来
+  $('opt-wrap').closest('label').hidden = infinite;
+  $('board-size').closest('.row').hidden = infinite;
 
   $('stat-transition-card').hidden = !wuxing && !asyncMode;
   $('stat-gen-label').textContent = asyncMode ? '事件数' : '世代';
@@ -365,6 +393,7 @@ function applyModeUI() {
   $('mode-life').classList.toggle('is-active', life);
   $('mode-wuxing').classList.toggle('is-active', wuxing);
   $('mode-async').classList.toggle('is-active', asyncMode);
+  $('mode-infinite').classList.toggle('is-active', infinite);
 
   updateWuxingReadout();
   updateSpeedLabel();
@@ -388,9 +417,20 @@ function switchMode(mode) {
   state.mode = mode;
   setRunning(false);
   ui.pending = null;
+
+  // 无限模式用稀疏世界，其余用稠密网格
+  board = mode === 'infinite' ? sparseWorld : denseBoard;
+  if (mode === 'infinite') sparseWorld.clear();
+
+  // 先把相机摆好，播种才会落在视野中心
+  if (board.isSparse) renderer.centerOn(0, 0, 8);
+  else renderer.fit(board);
+  updateZoomLabel();
+
   engine = createEngine();
   randomizeBoard();
   applyModeUI();
+
   saveSettings();
   render();
 }
@@ -398,9 +438,11 @@ function switchMode(mode) {
 /* ---------- 绘制（鼠标/触控） ---------- */
 
 function paintCell(x, y, value) {
-  const i = y * board.width + x;
-  board.cells[i] = value;
-  engine.age[i] = value ? 1 : 0;
+  board.set(x, y, value);
+  if (!board.isSparse) {
+    const i = y * board.width + x;
+    if (engine.age) engine.age[i] = value ? 1 : 0;
+  }
 }
 
 /** 两点之间用 Bresenham 补格，快速拖动时不会断线 */
@@ -430,10 +472,7 @@ function paintLine(from, to, value) {
 
 function stampPattern(origin) {
   for (const [dx, dy] of ui.pending.cells) {
-    const i = board.index(origin.x + dx, origin.y + dy);
-    if (i < 0) continue;
-    board.cells[i] = 1;
-    engine.age[i] = 1;
+    board.set(origin.x + dx, origin.y + dy, 1);
   }
   engine.stats.population = board.countAlive();
 }
@@ -452,7 +491,8 @@ function updateZoomLabel() {
 }
 
 function fitView() {
-  renderer.fit(board);
+  if (board.isSparse) renderer.centerOn(0, 0, 8);
+  else renderer.fit(board);
   updateZoomLabel();
   render();
 }
@@ -701,6 +741,7 @@ function bindControls() {
   $('mode-life').addEventListener('click', () => switchMode('life'));
   $('mode-wuxing').addEventListener('click', () => switchMode('wuxing'));
   $('mode-async').addEventListener('click', () => switchMode('async'));
+  $('mode-infinite').addEventListener('click', () => switchMode('infinite'));
 
   $('rule-apply').addEventListener('click', () => applyRule($('rule-input').value));
   $('rule-input').addEventListener('keydown', (event) => {
@@ -802,8 +843,8 @@ function bindControls() {
   const wrap = $('opt-wrap');
   wrap.checked = state.wrap;
   wrap.addEventListener('change', () => {
-    board.wrap = wrap.checked;
     state.wrap = wrap.checked;
+    if (!board.isSparse) board.wrap = state.wrap;
     saveSettings();
   });
 
@@ -825,6 +866,7 @@ function bindControls() {
   size.value = `${state.width}x${state.height}`;
   if (!size.value) size.value = '160x100';
   size.addEventListener('change', () => {
+    if (board.isSparse) return; // 无限模式没有尺寸可选
     const [w, h] = size.value.split('x').map(Number);
     board.resize(w, h);
     engine.setBoard(board);
@@ -924,15 +966,20 @@ function boot() {
 
   document.addEventListener('keydown', onKeydown);
 
-  // 首屏直接给一个能玩的初始状态
-  if (board.countAlive() === 0) randomizeBoard();
-
+  // 等布局稳定再定位相机：首帧的 clientHeight 可能还没算上页头。
+  // 顺序很重要——先摆相机，再播种，否则撒出来的细胞会偏出视野中心。
   renderer.resize();
-  renderer.fit(board);
-  updateZoomLabel();
-  render();
-  drawCharts();
-  requestAnimationFrame(loop);
+  requestAnimationFrame(() => {
+    if (board.isSparse) renderer.centerOn(0, 0, 8);
+    else renderer.fit(board);
+    updateZoomLabel();
+
+    if (board.countAlive() === 0) randomizeBoard();
+
+    render();
+    drawCharts();
+    requestAnimationFrame(loop);
+  });
 }
 
 boot();
