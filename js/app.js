@@ -1,26 +1,32 @@
 /**
  * 应用装配层：把网格、引擎、渲染、输入、面板控件接起来。
  *
- * 演化与渲染分离：引擎只管推进状态，渲染每帧读一次数据，
- * 所以暂停时依然能绘制、绘制时依然能实时看到下一帧结果。
+ * 现在有两套规则引擎，接口一致（step / stats / generation / age / setBoard）：
+ *   - Engine       生命游戏，二进制状态 + B/S 规则
+ *   - WuxingEngine 五行生克，六态（空 + 木火土金水）
+ * 切换模式只换引擎实例，循环、渲染、输入都不用改。
  */
 import { Board } from './core/board.js';
 import { Engine } from './core/engine.js';
 import { parseRule, RULE_PRESETS } from './core/rules.js';
+import { WuxingEngine, WUXING_STATES, seedWorld } from './core/wuxing.js';
 import { Renderer } from './ui/renderer.js';
 import { PATTERNS, rotatePattern } from './ui/patterns.js';
 
 const STORAGE_KEY = 'goc.settings.v1';
 const HISTORY_LIMIT = 320;
 const MAX_STEPS_PER_FRAME = 24;
-const COLORS = { accent: '#35e0c8' };
+const ACCENT = '#35e0c8';
 
 const $ = (id) => document.getElementById(id);
 
 /* ---------- 设置持久化 ---------- */
 
 const DEFAULTS = {
+  mode: 'life',
   rule: 'B3/S23',
+  grow: 3,
+  kill: 3,
   speed: 10,
   density: 0.3,
   width: 160,
@@ -28,19 +34,19 @@ const DEFAULTS = {
   wrap: true,
   grid: true,
   age: true,
+  brush: 1,
 };
 
 function loadSettings() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS };
-    const parsed = JSON.parse(raw);
-    const merged = { ...DEFAULTS, ...parsed };
-    // 尺寸做一次校验，避免存进去的脏数据把画布搞崩
+    const merged = { ...DEFAULTS, ...JSON.parse(raw) };
     if (!Number.isInteger(merged.width) || !Number.isInteger(merged.height)) {
       merged.width = DEFAULTS.width;
       merged.height = DEFAULTS.height;
     }
+    if (merged.mode !== 'life' && merged.mode !== 'wuxing') merged.mode = DEFAULTS.mode;
     return merged;
   } catch {
     return { ...DEFAULTS };
@@ -51,7 +57,7 @@ function saveSettings() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
-    /* 隐私模式下写不进去，忽略即可 */
+    /* 隐私模式写不进去，忽略即可 */
   }
 }
 
@@ -60,10 +66,28 @@ const state = loadSettings();
 /* ---------- 核心对象 ---------- */
 
 const board = new Board(state.width, state.height, state.wrap);
-let rule = parseRule(state.rule);
-const engine = new Engine(board, rule);
 const renderer = new Renderer($('board'));
 const canvas = $('board');
+
+/** 生命游戏规则，切到五行模式时保留着，切回来不用重设 */
+let lifeRule = safeParseRule(state.rule);
+
+function safeParseRule(text) {
+  try {
+    return parseRule(text);
+  } catch {
+    return parseRule(DEFAULTS.rule);
+  }
+}
+
+function createEngine() {
+  if (state.mode === 'wuxing') {
+    return new WuxingEngine(board, { grow: state.grow, kill: state.kill });
+  }
+  return new Engine(board, lifeRule);
+}
+
+let engine = createEngine();
 
 /** 运行期状态（不进 localStorage） */
 const ui = {
@@ -76,6 +100,9 @@ const ui = {
 };
 
 const history = [];
+
+/** 五行配色表，下标即状态值 */
+const WUXING_PALETTE = WUXING_STATES.map((s) => s.color);
 
 /* ---------- 演化循环 ---------- */
 
@@ -100,7 +127,6 @@ function loop(now) {
       accumulator -= interval;
       steps++;
     }
-    // 一帧内追不上目标速度时丢掉欠账，避免越积越多
     if (steps >= MAX_STEPS_PER_FRAME) accumulator = 0;
   } else {
     accumulator = 0;
@@ -113,6 +139,7 @@ function loop(now) {
 
 function render() {
   renderer.draw(board, engine, {
+    palette: state.mode === 'wuxing' ? WUXING_PALETTE : null,
     colorByAge: state.age,
     showGrid: state.grid,
     hover: ui.hover,
@@ -132,6 +159,7 @@ function syncStats() {
   setText($('stat-pop'), engine.stats.population);
   setText($('stat-born'), engine.stats.births);
   setText($('stat-died'), engine.stats.deaths);
+  setText($('stat-trans'), engine.stats.transitions ?? 0);
 }
 
 function recordHistory(population) {
@@ -159,12 +187,8 @@ function drawSpark() {
 
   const max = Math.max(4, ...history);
   const stepX = w / (history.length - 1);
-  const points = history.map((value, i) => [
-    i * stepX,
-    h - 3 - (value / max) * (h - 6),
-  ]);
+  const points = history.map((value, i) => [i * stepX, h - 3 - (value / max) * (h - 6)]);
 
-  // 面积填充
   ctx.beginPath();
   ctx.moveTo(0, h);
   for (const [x, y] of points) ctx.lineTo(x, y);
@@ -176,10 +200,9 @@ function drawSpark() {
   ctx.fillStyle = gradient;
   ctx.fill();
 
-  // 折线
   ctx.beginPath();
   points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-  ctx.strokeStyle = COLORS.accent;
+  ctx.strokeStyle = ACCENT;
   ctx.lineWidth = 1.4;
   ctx.lineJoin = 'round';
   ctx.stroke();
@@ -206,11 +229,49 @@ function clearBoard() {
   drawSpark();
 }
 
+/** 按当前模式重新播种 */
 function randomizeBoard() {
-  board.randomize(state.density);
+  if (state.mode === 'wuxing') {
+    seedWorld(board, state.density);
+  } else {
+    board.randomize(state.density);
+  }
   engine.resetCounters();
   history.length = 0;
   drawSpark();
+}
+
+/* ---------- 模式 ---------- */
+
+function applyModeUI() {
+  const wuxing = state.mode === 'wuxing';
+  $('rule-life').hidden = wuxing;
+  $('rule-wuxing').hidden = !wuxing;
+  $('brush-block').hidden = !wuxing;
+  $('wuxing-block').hidden = !wuxing;
+  $('patterns-block').hidden = wuxing;
+  $('opt-age-row').hidden = wuxing;
+  $('stat-transition-card').hidden = !wuxing;
+  $('mode-life').classList.toggle('is-active', !wuxing);
+  $('mode-wuxing').classList.toggle('is-active', wuxing);
+  updateWuxingReadout();
+  renderBrushChips();
+}
+
+function updateWuxingReadout() {
+  $('wuxing-readout').textContent = `生长 ≥ ${state.grow} · 克制 ≥ ${state.kill}`;
+}
+
+function switchMode(mode) {
+  if (state.mode === mode) return;
+  state.mode = mode;
+  setRunning(false);
+  ui.pending = null;
+  engine = createEngine();
+  randomizeBoard();
+  applyModeUI();
+  saveSettings();
+  render();
 }
 
 /* ---------- 绘制（鼠标/触控） ---------- */
@@ -256,6 +317,11 @@ function stampPattern(origin) {
   engine.stats.population = board.countAlive();
 }
 
+/** 当前画笔写入的状态值：生命游戏恒为 1，五行模式取所选元素 */
+function brushValue() {
+  return state.mode === 'wuxing' ? state.brush : 1;
+}
+
 canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 
 canvas.addEventListener('pointerdown', (event) => {
@@ -270,7 +336,7 @@ canvas.addEventListener('pointerdown', (event) => {
 
   canvas.setPointerCapture(event.pointerId);
   ui.painting = true;
-  ui.paintValue = event.button === 2 || event.shiftKey ? 0 : 1;
+  ui.paintValue = event.button === 2 || event.shiftKey ? 0 : brushValue();
   ui.lastPaint = cell;
   paintCell(cell.x, cell.y, ui.paintValue);
   render();
@@ -301,7 +367,7 @@ canvas.addEventListener('pointerleave', () => {
   ui.hover = null;
 });
 
-/* ---------- 图样面板 ---------- */
+/* ---------- 图样面板（生命游戏） ---------- */
 
 function selectPattern(pattern) {
   if (ui.pending && ui.pending.id === pattern.id) {
@@ -326,18 +392,69 @@ function renderPatternButtons() {
   }
 }
 
+/* ---------- 元素画笔 ---------- */
+
+function setBrush(value) {
+  state.brush = value;
+  saveSettings();
+  renderBrushChips();
+}
+
+function renderBrushChips() {
+  const container = $('brush-chips');
+  container.innerHTML = '';
+
+  for (const meta of WUXING_STATES.slice(1)) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chip';
+    btn.classList.toggle('active', state.brush === meta.value);
+    btn.style.color = state.brush === meta.value ? meta.color : '';
+    const dot = document.createElement('i');
+    dot.style.background = meta.color;
+    btn.appendChild(dot);
+    btn.appendChild(document.createTextNode(meta.name));
+    btn.addEventListener('click', () => setBrush(meta.value));
+    container.appendChild(btn);
+  }
+
+  const eraser = document.createElement('button');
+  eraser.type = 'button';
+  eraser.className = 'chip';
+  eraser.classList.toggle('active', state.brush === 0);
+  const dot = document.createElement('i');
+  dot.className = 'hollow';
+  eraser.appendChild(dot);
+  eraser.appendChild(document.createTextNode('擦除'));
+  eraser.addEventListener('click', () => setBrush(0));
+  container.appendChild(eraser);
+}
+
+function renderLegend() {
+  const legend = $('legend');
+  legend.innerHTML = '';
+  for (const meta of WUXING_STATES.slice(1)) {
+    const item = document.createElement('span');
+    const dot = document.createElement('i');
+    dot.style.background = meta.color;
+    item.appendChild(dot);
+    item.appendChild(document.createTextNode(meta.name));
+    legend.appendChild(item);
+  }
+}
+
 /* ---------- 面板绑定 ---------- */
 
 function applyRule(text) {
   const input = $('rule-input');
   const error = $('rule-error');
   try {
-    rule = parseRule(text);
-    engine.setRule(rule);
-    input.value = rule.text;
+    lifeRule = parseRule(text);
+    if (engine.setRule) engine.setRule(lifeRule);
+    input.value = lifeRule.text;
     input.classList.remove('invalid');
     error.textContent = '';
-    state.rule = rule.text;
+    state.rule = lifeRule.text;
     saveSettings();
   } catch {
     input.classList.add('invalid');
@@ -357,6 +474,9 @@ function populateRulePresets() {
 }
 
 function bindControls() {
+  $('mode-life').addEventListener('click', () => switchMode('life'));
+  $('mode-wuxing').addEventListener('click', () => switchMode('wuxing'));
+
   $('rule-apply').addEventListener('click', () => applyRule($('rule-input').value));
   $('rule-input').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') applyRule($('rule-input').value);
@@ -392,6 +512,28 @@ function bindControls() {
     saveSettings();
   });
 
+  const grow = $('wuxing-grow');
+  grow.value = state.grow;
+  $('wuxing-grow-val').textContent = `≥ ${state.grow}`;
+  grow.addEventListener('input', () => {
+    state.grow = Number(grow.value);
+    $('wuxing-grow-val').textContent = `≥ ${state.grow}`;
+    if (engine.setOptions) engine.setOptions({ grow: state.grow });
+    updateWuxingReadout();
+    saveSettings();
+  });
+
+  const kill = $('wuxing-kill');
+  kill.value = state.kill;
+  $('wuxing-kill-val').textContent = `≥ ${state.kill}`;
+  kill.addEventListener('input', () => {
+    state.kill = Number(kill.value);
+    $('wuxing-kill-val').textContent = `≥ ${state.kill}`;
+    if (engine.setOptions) engine.setOptions({ kill: state.kill });
+    updateWuxingReadout();
+    saveSettings();
+  });
+
   const wrap = $('opt-wrap');
   wrap.checked = state.wrap;
   wrap.addEventListener('change', () => {
@@ -421,6 +563,7 @@ function bindControls() {
     const [w, h] = size.value.split('x').map(Number);
     board.resize(w, h);
     engine.setBoard(board);
+    engine.resetCounters();
     history.length = 0;
     drawSpark();
     state.width = w;
@@ -437,6 +580,11 @@ function onKeydown(event) {
   const target = event.target;
   if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
 
+  if (state.mode === 'wuxing' && /^[0-5]$/.test(event.key)) {
+    setBrush(Number(event.key));
+    return;
+  }
+
   switch (event.key) {
     case ' ':
       event.preventDefault();
@@ -451,7 +599,6 @@ function onKeydown(event) {
       clearBoard();
       break;
     case 'r':
-      // 选中图样时 R 用来旋转，否则是重新随机
       if (ui.pending) {
         ui.pending.cells = rotatePattern(ui.pending.cells);
       } else {
@@ -476,11 +623,15 @@ function boot() {
   populateRulePresets();
   bindControls();
   renderPatternButtons();
+  renderLegend();
+  renderBrushChips();
+  applyModeUI();
   setRunning(false);
 
+  $('rule-input').value = lifeRule.text;
+
   const resizeObserver = new ResizeObserver(() => {
-    // resize 会重置画布像素尺寸（等于清空），必须立刻补画一帧，
-    // 否则要等下一个 animation frame 才有内容
+    // resize 会重置画布像素尺寸（等于清空），必须立刻补画一帧
     renderer.resize();
     render();
     drawSpark();
@@ -490,7 +641,7 @@ function boot() {
 
   document.addEventListener('keydown', onKeydown);
 
-  // 首屏给一点随机图样，直接能玩
+  // 首屏直接给一个能玩的初始状态
   if (board.countAlive() === 0) randomizeBoard();
 
   renderer.resize();

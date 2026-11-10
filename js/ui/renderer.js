@@ -55,7 +55,7 @@ export class Renderer {
   /**
    * @param {import('../core/board.js').Board} board
    * @param {import('../core/engine.js').Engine} engine
-   * @param {{colorByAge: boolean, showGrid: boolean, hover: {x:number,y:number}|null, ghost: [number,number][]|null}} opts
+   * @param {{colorByAge: boolean, showGrid: boolean, hover: {x:number,y:number}|null, ghost: [number,number][]|null, palette: string[]|null}} opts
    */
   draw(board, engine, opts) {
     const { ctx } = this;
@@ -77,18 +77,25 @@ export class Renderer {
     const inset = cell >= 5 ? 1 : 0;
     const size = cell - inset;
 
-    // 细胞：按年龄分色，色值只在变化时切换
+    // 细胞：按状态取色（五行）或按年龄取色（生命游戏），色值只在变化时切换
     let currentColor = '';
     for (let y = 0; y < board.height; y++) {
       const row = y * board.width;
       const py = oy + y * cell;
       for (let x = 0; x < board.width; x++) {
         const i = row + x;
-        if (board.cells[i] === 0) continue;
+        const value = board.cells[i];
+        if (value === 0) continue;
 
-        const color = opts.colorByAge
-          ? this.ramp[Math.min(engine.age[i], this.ramp.length - 1)]
-          : '#35e0c8';
+        let color;
+        if (opts.palette) {
+          color = opts.palette[value] || '#35e0c8';
+        } else if (opts.colorByAge) {
+          color = this.ramp[Math.min(engine.age[i], this.ramp.length - 1)];
+        } else {
+          color = '#35e0c8';
+        }
+
         if (color !== currentColor) {
           ctx.fillStyle = color;
           currentColor = color;
