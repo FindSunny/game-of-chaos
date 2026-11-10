@@ -2,10 +2,10 @@
   "name": "game-of-chaos",
   "version": "0.1.0",
   "private": true,
-  "description": "元胞自动机沙盒：从康威生命游戏起步，后续扩展五状态生克与异步因果规则",
+  "description": "元胞自动机沙盒：生命游戏、五行生克、异步因果三套规则共用一套界面",
   "type": "module",
   "scripts": {
-    "test": "node tests/engine.test.mjs && node tests/wuxing.test.mjs",
+    "test": "node tests/engine.test.mjs && node tests/wuxing.test.mjs && node tests/async.test.mjs",
     "serve": "python -m http.server 8080"
   }
 }

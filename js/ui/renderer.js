@@ -92,7 +92,10 @@ export class Renderer {
         if (value === 0) continue;
 
         let color;
-        if (opts.palette) {
+        if (opts.colorFor) {
+          // 异步模式：按每个格子自己的本地时间取色
+          color = opts.colorFor(i);
+        } else if (opts.palette) {
           // 单态隔离时，其余元素压成暗灰，只留选中元素的原色
           color =
             opts.isolate && value !== opts.isolate

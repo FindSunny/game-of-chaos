@@ -544,6 +544,25 @@ input[type='checkbox'] {
   color: var(--text);
 }
 
+/* 异步模式的小读数表 */
+.readout-mini {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  margin: 10px 0 0;
+  font-size: 11.5px;
+}
+
+.readout-mini dt {
+  color: var(--muted);
+}
+
+.readout-mini dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .ring {
   display: block;
   width: 100%;

@@ -1,15 +1,17 @@
 /**
  * 应用装配层：把网格、引擎、渲染、输入、面板控件接起来。
  *
- * 现在有两套规则引擎，接口一致（step / stats / generation / age / setBoard）：
- *   - Engine       生命游戏，二进制状态 + B/S 规则
- *   - WuxingEngine 五行生克，六态（空 + 木火土金水）
+ * 三套引擎，接口对齐（step 或 advance / stats / generation / age / setBoard）：
+ *   - Engine          生命游戏，二进制状态 + B/S 规则，全局同步
+ *   - WuxingEngine    五行生克，六态（空 + 木火土金水），全局同步
+ *   - AsyncLifeEngine 生命游戏规则，但去掉全局时钟，改成事件驱动 + 光锥约束
  * 切换模式只换引擎实例，循环、渲染、输入都不用改。
  */
 import { Board } from './core/board.js';
 import { Engine } from './core/engine.js';
 import { parseRule, RULE_PRESETS } from './core/rules.js';
 import { WuxingEngine, WUXING_STATES, PARAM_PRESETS, seedWorld } from './core/wuxing.js';
+import { AsyncLifeEngine } from './core/async-engine.js';
 import { Renderer } from './ui/renderer.js';
 import { PATTERNS, rotatePattern } from './ui/patterns.js';
 import { drawRing } from './ui/ring.js';
@@ -39,7 +41,16 @@ const DEFAULTS = {
   age: true,
   brush: 1,
   isolate: 0,
+  // 异步模式
+  trigger: 'period', // period | trigger
+  cone: true, // 严格光锥
+  asyncRate: 2, // 每格每秒更新次数
+  asyncC: 1, // 光速 格/秒
+  localTime: true, // 按本地时间着色
 };
+
+/** 本地时间着色：越绿越新，越蓝越落后 */
+const LAG_RAMP = ['#ecfeff', '#a5f3fc', '#67e8f9', '#22d3ee', '#0891b2', '#0e7490'];
 
 function loadSettings() {
   try {
@@ -50,7 +61,7 @@ function loadSettings() {
       merged.width = DEFAULTS.width;
       merged.height = DEFAULTS.height;
     }
-    if (merged.mode !== 'life' && merged.mode !== 'wuxing') merged.mode = DEFAULTS.mode;
+    if (!['life', 'wuxing', 'async'].includes(merged.mode)) merged.mode = DEFAULTS.mode;
     return merged;
   } catch {
     return { ...DEFAULTS };
@@ -88,6 +99,14 @@ function createEngine() {
   if (state.mode === 'wuxing') {
     return new WuxingEngine(board, { grow: state.grow, kill: state.kill });
   }
+  if (state.mode === 'async') {
+    return new AsyncLifeEngine(board, lifeRule, {
+      mode: state.trigger,
+      strictCone: state.cone,
+      rate: state.asyncRate,
+      c: state.asyncC,
+    });
+  }
   return new Engine(board, lifeRule);
 }
 
@@ -117,8 +136,13 @@ const WUXING_NAMES = WUXING_STATES.map((s) => s.name);
 let lastFrame = performance.now();
 let accumulator = 0;
 
-function tick() {
-  engine.step();
+function tick(dtMs = 0) {
+  if (state.mode === 'async') {
+    // 异步引擎按仿真秒推进，速度滑杆在这里是「倍速」
+    engine.advance((dtMs / 1000) * (state.speed / 10));
+  } else {
+    engine.step();
+  }
   recordHistory(engine.stats.population);
 }
 
@@ -127,15 +151,19 @@ function loop(now) {
   lastFrame = now;
 
   if (ui.running) {
-    const interval = 1000 / state.speed;
-    accumulator += dt;
-    let steps = 0;
-    while (accumulator >= interval && steps < MAX_STEPS_PER_FRAME) {
-      tick();
-      accumulator -= interval;
-      steps++;
+    if (state.mode === 'async') {
+      tick(dt);
+    } else {
+      const interval = 1000 / state.speed;
+      accumulator += dt;
+      let steps = 0;
+      while (accumulator >= interval && steps < MAX_STEPS_PER_FRAME) {
+        tick();
+        accumulator -= interval;
+        steps++;
+      }
+      if (steps >= MAX_STEPS_PER_FRAME) accumulator = 0;
     }
-    if (steps >= MAX_STEPS_PER_FRAME) accumulator = 0;
   } else {
     accumulator = 0;
   }
@@ -145,11 +173,21 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
+/** 异步模式的单元格颜色：按各自本地时间落后当前时刻的程度取色 */
+function asyncColor(index) {
+  if (!state.localTime) return ACCENT;
+  const lag = engine.simTime - engine.stamp[index];
+  const bucket = Math.min(LAG_RAMP.length - 1, Math.max(0, Math.floor(lag * 6)));
+  return LAG_RAMP[bucket];
+}
+
 function render() {
+  const asyncMode = state.mode === 'async';
   renderer.draw(board, engine, {
     palette: state.mode === 'wuxing' ? WUXING_PALETTE : null,
     isolate: state.mode === 'wuxing' ? state.isolate : 0,
-    colorByAge: state.age,
+    colorByAge: state.age && !asyncMode,
+    colorFor: asyncMode ? asyncColor : null,
     showGrid: state.grid,
     hover: ui.hover,
     ghost: ui.pending ? ui.pending.cells : null,
@@ -168,6 +206,15 @@ function syncStats() {
   setText($('stat-pop'), engine.stats.population);
   setText($('stat-born'), engine.stats.births);
   setText($('stat-died'), engine.stats.deaths);
+
+  if (state.mode === 'async') {
+    setText($('stat-trans'), `${engine.stats.simTime.toFixed(1)} s`);
+    setText($('async-time'), `${engine.stats.simTime.toFixed(1)} s`);
+    setText($('async-queue'), engine.stats.queue);
+    setText($('async-lag'), `${engine.stats.maxLag.toFixed(2)} s`);
+    return;
+  }
+
   setText($('stat-trans'), engine.stats.transitions ?? 0);
 }
 
@@ -261,7 +308,12 @@ function setRunning(running) {
 
 function stepOnce() {
   if (ui.running) setRunning(false);
-  tick();
+  if (state.mode === 'async') {
+    // 异步没有「一代」，单步按平均一个更新周期推进
+    tick((1 / state.asyncRate) * 1000);
+  } else {
+    tick();
+  }
 }
 
 function clearBoard() {
@@ -289,22 +341,42 @@ function randomizeBoard() {
 
 function applyModeUI() {
   const wuxing = state.mode === 'wuxing';
-  $('rule-life').hidden = wuxing;
+  const asyncMode = state.mode === 'async';
+  const life = state.mode === 'life';
+
+  $('rule-life').hidden = !life;
   $('rule-wuxing').hidden = !wuxing;
   $('brush-block').hidden = !wuxing;
   $('wuxing-block').hidden = !wuxing;
   $('ring-block').hidden = !wuxing;
+  $('async-block').hidden = !asyncMode;
+
+  // 异步模式跑的还是生命游戏规则，图样库照常可用
   $('patterns-block').hidden = wuxing;
-  $('opt-age-row').hidden = wuxing;
-  $('stat-transition-card').hidden = !wuxing;
+  $('opt-age-row').hidden = wuxing || asyncMode;
+
+  $('stat-transition-card').hidden = !wuxing && !asyncMode;
+  $('stat-gen-label').textContent = asyncMode ? '事件数' : '世代';
+  $('stat-wide-label').textContent = asyncMode ? '仿真时间' : '转化';
+
   $('spark').hidden = wuxing;
   $('flow-chart').hidden = !wuxing;
-  $('mode-life').classList.toggle('is-active', !wuxing);
+
+  $('mode-life').classList.toggle('is-active', life);
   $('mode-wuxing').classList.toggle('is-active', wuxing);
+  $('mode-async').classList.toggle('is-active', asyncMode);
+
   updateWuxingReadout();
+  updateSpeedLabel();
   renderBrushChips();
   renderLegend();
   renderPresets();
+}
+
+/** 速度滑杆在异步模式下是倍速，其余模式是「代/秒」 */
+function updateSpeedLabel() {
+  $('speed-val').textContent =
+    state.mode === 'async' ? `${(state.speed / 10).toFixed(1)}×` : `${state.speed} 代/秒`;
 }
 
 function updateWuxingReadout() {
@@ -570,6 +642,7 @@ function populateRulePresets() {
 function bindControls() {
   $('mode-life').addEventListener('click', () => switchMode('life'));
   $('mode-wuxing').addEventListener('click', () => switchMode('wuxing'));
+  $('mode-async').addEventListener('click', () => switchMode('async'));
 
   $('rule-apply').addEventListener('click', () => applyRule($('rule-input').value));
   $('rule-input').addEventListener('keydown', (event) => {
@@ -590,10 +663,10 @@ function bindControls() {
 
   const speed = $('speed');
   speed.value = state.speed;
-  $('speed-val').textContent = `${state.speed} 代/秒`;
+  updateSpeedLabel();
   speed.addEventListener('input', () => {
     state.speed = Number(speed.value);
-    $('speed-val').textContent = `${state.speed} 代/秒`;
+    updateSpeedLabel();
     saveSettings();
   });
 
@@ -615,6 +688,58 @@ function bindControls() {
   kill.value = state.kill;
   $('wuxing-kill-val').textContent = `≥ ${state.kill}`;
   kill.addEventListener('input', () => applyParams(state.grow, Number(kill.value)));
+
+  /* ---------- 异步模式控件 ---------- */
+
+  const triggerBox = $('trigger-switch');
+  for (const btn of triggerBox.querySelectorAll('button')) {
+    btn.classList.toggle('is-active', btn.dataset.trigger === state.trigger);
+    btn.addEventListener('click', () => {
+      state.trigger = btn.dataset.trigger;
+      for (const other of triggerBox.querySelectorAll('button')) {
+        other.classList.toggle('is-active', other === btn);
+      }
+      if (engine.setOptions) engine.setOptions({ mode: state.trigger });
+      saveSettings();
+      render();
+    });
+  }
+
+  const cone = $('opt-cone');
+  cone.checked = state.cone;
+  cone.addEventListener('change', () => {
+    state.cone = cone.checked;
+    if (engine.setOptions) engine.setOptions({ strictCone: state.cone });
+    saveSettings();
+  });
+
+  const rate = $('async-rate');
+  rate.value = Math.round(state.asyncRate * 10);
+  $('async-rate-val').textContent = `${state.asyncRate.toFixed(1)} 次/秒`;
+  rate.addEventListener('input', () => {
+    state.asyncRate = Number(rate.value) / 10;
+    $('async-rate-val').textContent = `${state.asyncRate.toFixed(1)} 次/秒`;
+    if (engine.setOptions) engine.setOptions({ rate: state.asyncRate });
+    saveSettings();
+  });
+
+  const c = $('async-c');
+  c.value = state.asyncC;
+  $('async-c-val').textContent = `${state.asyncC} 格/秒`;
+  c.addEventListener('input', () => {
+    state.asyncC = Number(c.value);
+    $('async-c-val').textContent = `${state.asyncC} 格/秒`;
+    if (engine.setOptions) engine.setOptions({ c: state.asyncC });
+    saveSettings();
+  });
+
+  const localTime = $('opt-localtime');
+  localTime.checked = state.localTime;
+  localTime.addEventListener('change', () => {
+    state.localTime = localTime.checked;
+    saveSettings();
+    render();
+  });
 
   const wrap = $('opt-wrap');
   wrap.checked = state.wrap;

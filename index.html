@@ -26,6 +26,7 @@
         <div class="mode-switch" role="group" aria-label="规则类型">
           <button id="mode-life" class="mode-btn is-active" type="button">生命游戏</button>
           <button id="mode-wuxing" class="mode-btn" type="button">五行生克</button>
+          <button id="mode-async" class="mode-btn" type="button">异步因果</button>
         </div>
 
         <div class="rule-bar" id="rule-life">
@@ -68,12 +69,12 @@
           <section class="block">
             <h2>状态</h2>
             <dl class="stats">
-              <div><dt>世代</dt><dd id="stat-gen" class="mono">0</dd></div>
+              <div><dt id="stat-gen-label">世代</dt><dd id="stat-gen" class="mono">0</dd></div>
               <div><dt>存活</dt><dd id="stat-pop" class="mono">0</dd></div>
               <div><dt>出生</dt><dd id="stat-born" class="mono">0</dd></div>
               <div><dt>死亡</dt><dd id="stat-died" class="mono">0</dd></div>
               <div id="stat-transition-card" class="wide" hidden>
-                <dt>转化</dt><dd id="stat-trans" class="mono">0</dd>
+                <dt id="stat-wide-label">转化</dt><dd id="stat-trans" class="mono">0</dd>
               </div>
             </dl>
             <canvas id="spark" class="spark"></canvas>
@@ -111,6 +112,36 @@
               生长：空格边长出邻居最多的元素「所生」。<br />
               克制：邻域里「克我者」≥ 阈值且多于「生我者」时此格被灭。<br />
               转化：「生我者」≥ 阈值且多于「克我者」时推进到「我生」。
+            </p>
+          </section>
+
+          <section class="block" id="async-block" hidden>
+            <h2>异步因果</h2>
+            <div class="presets" id="trigger-switch">
+              <button class="preset-btn is-active" type="button" data-trigger="period" title="每个格子按自己的时钟周期更新">周期</button>
+              <button class="preset-btn" type="button" data-trigger="trigger" title="只有邻居变化时才更新">邻居触发</button>
+            </div>
+            <label class="check"><input id="opt-cone" type="checkbox" checked /> 严格光锥（禁止超光速读取）</label>
+            <div class="row">
+              <span class="slabel">频率</span>
+              <input id="async-rate" type="range" min="5" max="100" step="5" value="20" />
+              <span id="async-rate-val" class="value mono">2.0 次/秒</span>
+            </div>
+            <div class="row">
+              <span class="slabel">光速</span>
+              <input id="async-c" type="range" min="1" max="10" step="1" value="1" />
+              <span id="async-c-val" class="value mono">1 格/秒</span>
+            </div>
+            <label class="check"><input id="opt-localtime" type="checkbox" checked /> 按本地时间着色</label>
+            <dl class="readout-mini">
+              <dt>仿真时间</dt><dd id="async-time" class="mono">0.0 s</dd>
+              <dt>队列</dt><dd id="async-queue" class="mono">0</dd>
+              <dt>最大落后</dt><dd id="async-lag" class="mono">0.0 s</dd>
+            </dl>
+            <p class="hint">
+              没有「第 t 代」：每个格子有自己的时钟。严格光锥下，一个格子只能读到邻居
+              「已经送到」的状态，超前的读不到。<br />
+              邻居触发模式没有扰动时会静止，点画布或按「随机」重新点火。
             </p>
           </section>
 
