@@ -349,8 +349,13 @@ function randomizeBoard() {
   if (state.mode === 'wuxing') {
     seedWorld(board, state.density);
   } else if (board.isSparse) {
+    // 撒点范围跟着视口走：缩得越小、视野越大，撒出来的初始网格也越大，
+    // 这样点「随机」得到的是一片铺满屏幕的汤，而不是视野中间一小簇
     const center = cameraCenter();
-    board.randomize(state.density, Math.random, center.x, center.y, 120, 80);
+    const zoom = renderer.camera.zoom;
+    const width = Math.min(560, Math.max(200, Math.ceil((canvas.clientWidth / zoom) * 1.25)));
+    const height = Math.min(400, Math.max(150, Math.ceil((canvas.clientHeight / zoom) * 1.25)));
+    board.randomize(state.density, Math.random, center.x, center.y, width, height);
   } else {
     board.randomize(state.density);
   }
