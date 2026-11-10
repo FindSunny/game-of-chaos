@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    Game of Chaos —— 深色系，青色作强调色。
    单元格颜色由渲染层控制，这里只管布局与控件外观。
    ============================================================ */
@@ -520,6 +520,28 @@ input[type='checkbox'] {
   height: 8px;
   border-radius: 50%;
   display: inline-block;
+}
+
+/* 顶部文档入口：新标签页打开，不打断当前沙盒状态 */
+.doc-link {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.doc-link:hover {
+  background: rgba(148, 163, 184, 0.1);
+  border-color: var(--line-strong);
+  color: var(--text);
 }
 
 .ring {
