@@ -9,12 +9,15 @@
 import { Board } from './core/board.js';
 import { Engine } from './core/engine.js';
 import { parseRule, RULE_PRESETS } from './core/rules.js';
-import { WuxingEngine, WUXING_STATES, seedWorld } from './core/wuxing.js';
+import { WuxingEngine, WUXING_STATES, PARAM_PRESETS, seedWorld } from './core/wuxing.js';
 import { Renderer } from './ui/renderer.js';
 import { PATTERNS, rotatePattern } from './ui/patterns.js';
+import { drawRing } from './ui/ring.js';
+import { drawSeries } from './ui/timeseries.js';
 
 const STORAGE_KEY = 'goc.settings.v1';
 const HISTORY_LIMIT = 320;
+const SERIES_LIMIT = 240;
 const MAX_STEPS_PER_FRAME = 24;
 const ACCENT = '#35e0c8';
 
@@ -35,6 +38,7 @@ const DEFAULTS = {
   grid: true,
   age: true,
   brush: 1,
+  isolate: 0,
 };
 
 function loadSettings() {
@@ -101,8 +105,12 @@ const ui = {
 
 const history = [];
 
+/** 五条状态曲线，索引 0 对应木；只存数字，绘制时再归一化 */
+const series = [[], [], [], [], []];
+
 /** 五行配色表，下标即状态值 */
 const WUXING_PALETTE = WUXING_STATES.map((s) => s.color);
+const WUXING_NAMES = WUXING_STATES.map((s) => s.name);
 
 /* ---------- 演化循环 ---------- */
 
@@ -140,6 +148,7 @@ function loop(now) {
 function render() {
   renderer.draw(board, engine, {
     palette: state.mode === 'wuxing' ? WUXING_PALETTE : null,
+    isolate: state.mode === 'wuxing' ? state.isolate : 0,
     colorByAge: state.age,
     showGrid: state.grid,
     hover: ui.hover,
@@ -165,7 +174,40 @@ function syncStats() {
 function recordHistory(population) {
   history.push(population);
   if (history.length > HISTORY_LIMIT) history.shift();
-  drawSpark();
+
+  if (state.mode === 'wuxing') {
+    const totals = engine.stats.flows?.totals;
+    if (totals) {
+      for (let s = 0; s < 5; s++) series[s].push(totals[s + 1]);
+      if (series[0].length > SERIES_LIMIT) {
+        for (const line of series) line.shift();
+      }
+    }
+  }
+
+  drawCharts();
+}
+
+function resetSeries() {
+  for (const line of series) line.length = 0;
+}
+
+/** 按当前模式挑图表：生命游戏看总人口曲线，五行看五态曲线 + 流向环 */
+function drawCharts() {
+  if (state.mode === 'wuxing') {
+    drawSeries($('flow-chart'), series, WUXING_PALETTE);
+    const flows = engine.stats.flows;
+    if (flows) {
+      drawRing($('ring'), {
+        totals: flows.totals,
+        flows,
+        palette: WUXING_PALETTE,
+        names: WUXING_NAMES,
+      });
+    }
+  } else {
+    drawSpark();
+  }
 }
 
 function drawSpark() {
@@ -226,7 +268,8 @@ function clearBoard() {
   board.clear();
   engine.resetCounters();
   history.length = 0;
-  drawSpark();
+  resetSeries();
+  drawCharts();
 }
 
 /** 按当前模式重新播种 */
@@ -238,7 +281,8 @@ function randomizeBoard() {
   }
   engine.resetCounters();
   history.length = 0;
-  drawSpark();
+  resetSeries();
+  drawCharts();
 }
 
 /* ---------- 模式 ---------- */
@@ -249,13 +293,18 @@ function applyModeUI() {
   $('rule-wuxing').hidden = !wuxing;
   $('brush-block').hidden = !wuxing;
   $('wuxing-block').hidden = !wuxing;
+  $('ring-block').hidden = !wuxing;
   $('patterns-block').hidden = wuxing;
   $('opt-age-row').hidden = wuxing;
   $('stat-transition-card').hidden = !wuxing;
+  $('spark').hidden = wuxing;
+  $('flow-chart').hidden = !wuxing;
   $('mode-life').classList.toggle('is-active', !wuxing);
   $('mode-wuxing').classList.toggle('is-active', wuxing);
   updateWuxingReadout();
   renderBrushChips();
+  renderLegend();
+  renderPresets();
 }
 
 function updateWuxingReadout() {
@@ -434,12 +483,57 @@ function renderLegend() {
   const legend = $('legend');
   legend.innerHTML = '';
   for (const meta of WUXING_STATES.slice(1)) {
-    const item = document.createElement('span');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.classList.toggle('is-active', state.isolate === meta.value);
+    btn.style.color = state.isolate === meta.value ? meta.color : '';
     const dot = document.createElement('i');
     dot.style.background = meta.color;
-    item.appendChild(dot);
-    item.appendChild(document.createTextNode(meta.name));
-    legend.appendChild(item);
+    btn.appendChild(dot);
+    btn.appendChild(document.createTextNode(meta.name));
+    btn.title = `只看${meta.name}`;
+    btn.addEventListener('click', () => setIsolate(meta.value));
+    legend.appendChild(btn);
+  }
+}
+
+/** 单态隔离：只让选中的元素保持原色，其余压暗，用来观察单一元素的扩张形状 */
+function setIsolate(value) {
+  state.isolate = state.isolate === value ? 0 : value;
+  saveSettings();
+  renderLegend();
+  render();
+}
+
+/* ---------- 生克参数与预设 ---------- */
+
+function applyParams(grow, kill) {
+  state.grow = grow;
+  state.kill = kill;
+
+  $('wuxing-grow').value = grow;
+  $('wuxing-kill').value = kill;
+  $('wuxing-grow-val').textContent = `≥ ${grow}`;
+  $('wuxing-kill-val').textContent = `≥ ${kill}`;
+
+  if (engine.setOptions) engine.setOptions({ grow, kill });
+  updateWuxingReadout();
+  renderPresets();
+  saveSettings();
+}
+
+function renderPresets() {
+  const box = $('param-presets');
+  box.innerHTML = '';
+  for (const preset of PARAM_PRESETS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'preset-btn';
+    btn.textContent = preset.label;
+    btn.title = `${preset.hint}（生长 ≥ ${preset.grow} · 克制 ≥ ${preset.kill}）`;
+    btn.classList.toggle('is-active', state.grow === preset.grow && state.kill === preset.kill);
+    btn.addEventListener('click', () => applyParams(preset.grow, preset.kill));
+    box.appendChild(btn);
   }
 }
 
@@ -515,24 +609,12 @@ function bindControls() {
   const grow = $('wuxing-grow');
   grow.value = state.grow;
   $('wuxing-grow-val').textContent = `≥ ${state.grow}`;
-  grow.addEventListener('input', () => {
-    state.grow = Number(grow.value);
-    $('wuxing-grow-val').textContent = `≥ ${state.grow}`;
-    if (engine.setOptions) engine.setOptions({ grow: state.grow });
-    updateWuxingReadout();
-    saveSettings();
-  });
+  grow.addEventListener('input', () => applyParams(Number(grow.value), state.kill));
 
   const kill = $('wuxing-kill');
   kill.value = state.kill;
   $('wuxing-kill-val').textContent = `≥ ${state.kill}`;
-  kill.addEventListener('input', () => {
-    state.kill = Number(kill.value);
-    $('wuxing-kill-val').textContent = `≥ ${state.kill}`;
-    if (engine.setOptions) engine.setOptions({ kill: state.kill });
-    updateWuxingReadout();
-    saveSettings();
-  });
+  kill.addEventListener('input', () => applyParams(state.grow, Number(kill.value)));
 
   const wrap = $('opt-wrap');
   wrap.checked = state.wrap;
@@ -565,12 +647,13 @@ function bindControls() {
     engine.setBoard(board);
     engine.resetCounters();
     history.length = 0;
-    drawSpark();
+    resetSeries();
     state.width = w;
     state.height = h;
     saveSettings();
     renderer.resize();
     render();
+    drawCharts();
   });
 }
 
@@ -623,21 +706,23 @@ function boot() {
   populateRulePresets();
   bindControls();
   renderPatternButtons();
-  renderLegend();
-  renderBrushChips();
   applyModeUI();
   setRunning(false);
 
   $('rule-input').value = lifeRule.text;
+  $('wuxing-grow').value = state.grow;
+  $('wuxing-kill').value = state.kill;
 
   const resizeObserver = new ResizeObserver(() => {
     // resize 会重置画布像素尺寸（等于清空），必须立刻补画一帧
     renderer.resize();
     render();
-    drawSpark();
+    drawCharts();
   });
   resizeObserver.observe($('stage'));
   resizeObserver.observe($('spark'));
+  resizeObserver.observe($('flow-chart'));
+  resizeObserver.observe($('ring'));
 
   document.addEventListener('keydown', onKeydown);
 
@@ -645,6 +730,8 @@ function boot() {
   if (board.countAlive() === 0) randomizeBoard();
 
   renderer.resize();
+  render();
+  drawCharts();
   requestAnimationFrame(loop);
 }
 

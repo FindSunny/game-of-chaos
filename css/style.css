@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    Game of Chaos —— 深色系，青色作强调色。
    单元格颜色由渲染层控制，这里只管布局与控件外观。
    ============================================================ */
@@ -291,7 +291,7 @@ select:focus {
 .spark {
   display: block;
   width: 100%;
-  height: 46px;
+  height: 52px;
   margin-top: 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -486,16 +486,33 @@ input[type='checkbox'] {
 .legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 6px;
   margin-top: 10px;
   font-size: 11px;
   color: var(--muted);
 }
 
-.legend span {
+.legend button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.legend button:hover {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.legend button.is-active {
+  border-color: currentColor;
+  background: rgba(148, 163, 184, 0.12);
 }
 
 .legend i {
@@ -503,6 +520,44 @@ input[type='checkbox'] {
   height: 8px;
   border-radius: 50%;
   display: inline-block;
+}
+
+.ring {
+  display: block;
+  width: 100%;
+  height: 220px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.presets {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.preset-btn {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(148, 163, 184, 0.05);
+  color: #cbd5e1;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.preset-btn:hover {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.preset-btn.is-active {
+  border-color: rgba(53, 224, 200, 0.55);
+  background: var(--accent-dim);
+  color: #eafffb;
 }
 
 .stats > div.wide {

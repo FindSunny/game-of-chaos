@@ -7,6 +7,10 @@
  * 细胞颜色按「连续存活代数」渐变：刚出生的偏暗青，活得久的偏亮青白，
  * 这样一眼能看出哪些结构在移动、哪些已经稳定下来。
  */
+
+/** 单态隔离时其余元素的颜色：压成暗灰，保留形状但不抢眼 */
+const DIM_COLOR = 'rgba(148, 163, 184, 0.18)';
+
 export class Renderer {
   /** @param {HTMLCanvasElement} canvas */
   constructor(canvas) {
@@ -89,7 +93,11 @@ export class Renderer {
 
         let color;
         if (opts.palette) {
-          color = opts.palette[value] || '#35e0c8';
+          // 单态隔离时，其余元素压成暗灰，只留选中元素的原色
+          color =
+            opts.isolate && value !== opts.isolate
+              ? DIM_COLOR
+              : opts.palette[value] || '#35e0c8';
         } else if (opts.colorByAge) {
           color = this.ramp[Math.min(engine.age[i], this.ramp.length - 1)];
         } else {

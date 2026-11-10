@@ -58,6 +58,19 @@ export const DEFAULT_OPTIONS = {
 };
 
 /**
+ * 三档动力学预设。
+ *
+ * 参数平面上有一条很陡的相变：生长阈值 ≥3 时系统停在稀疏地块，降到 2 就会迅速铺满，
+ * 克制阈值再把「铺满之后」分成同心环和翻腾噪点两种形态。
+ * 三档就取在这条相变线的三侧，保证一眼能看出差别。
+ */
+export const PARAM_PRESETS = [
+  { id: 'world', label: '地块', grow: 3, kill: 3, hint: '稀疏，边界缓慢侵蚀' },
+  { id: 'ripple', label: '涟漪', grow: 2, kill: 4, hint: '铺满棋盘，同心环状推进' },
+  { id: 'boil', label: '沸腾', grow: 2, kill: 2, hint: '铺满后持续翻腾，结构被打散' },
+];
+
+/**
  * 五行区块初始化：每种元素撒几个圆斑，其余留空。
  *
  * 随机撒点（每格独立掷骰）在五态下会退化成彩色噪点——邻域里同态太少，
@@ -134,7 +147,27 @@ export class WuxingEngine {
     this.neighborBuf = new Int32Array(8);
     this.age = new Uint8Array(board.width * board.height);
     this.generation = 0;
-    this.stats = { births: 0, deaths: 0, transitions: 0, population: board.countAlive() };
+
+    // 每代的流量统计，供「五行流向环」使用：
+    //   bornFrom[g]  本代因元素 g 而诞生的格子数（体现 g → succ(g) 这条生）
+    //   advanced[s]  本代从 s 推进到 succ(s) 的格子数
+    //   killedBy[k]  本代被元素 k 克死的格子数（体现 k → ke(k) 这条克）
+    //   totals[v]    演化完成后各状态的格子数（含 totals[0] 的空）
+    // 这些数组每步复用，读取方要在下一次 step 之前读完。
+    this.flows = {
+      bornFrom: new Uint32Array(6),
+      advanced: new Uint32Array(6),
+      killedBy: new Uint32Array(6),
+      totals: new Int32Array(6),
+    };
+
+    this.stats = {
+      births: 0,
+      deaths: 0,
+      transitions: 0,
+      population: board.countAlive(),
+      flows: this.flows,
+    };
   }
 
   setBoard(board) {
@@ -142,7 +175,13 @@ export class WuxingEngine {
     this.age = new Uint8Array(board.width * board.height);
     this.neighborBuf = new Int32Array(8);
     this.generation = 0;
-    this.stats = { births: 0, deaths: 0, transitions: 0, population: board.countAlive() };
+    this.stats = {
+      births: 0,
+      deaths: 0,
+      transitions: 0,
+      population: board.countAlive(),
+      flows: this.flows,
+    };
   }
 
   setOptions(options) {
@@ -152,7 +191,14 @@ export class WuxingEngine {
   resetCounters() {
     this.generation = 0;
     this.age.fill(0);
-    this.stats = { births: 0, deaths: 0, transitions: 0, population: this.board.countAlive() };
+    for (const key of Object.keys(this.flows)) this.flows[key].fill(0);
+    this.stats = {
+      births: 0,
+      deaths: 0,
+      transitions: 0,
+      population: this.board.countAlive(),
+      flows: this.flows,
+    };
   }
 
   /**
@@ -192,6 +238,11 @@ export class WuxingEngine {
     const counts = this.stateCounts;
     const age = this.age;
     const { grow, kill } = this.options;
+    const { bornFrom, advanced, killedBy, totals } = this.flows;
+    bornFrom.fill(0);
+    advanced.fill(0);
+    killedBy.fill(0);
+    totals.fill(0);
 
     let births = 0;
     let deaths = 0;
@@ -223,21 +274,27 @@ export class WuxingEngine {
           if (parent !== 0) {
             result = succ(parent);
             births++;
+            bornFrom[parent]++;
           }
         } else {
-          const supporters = counts[pred(state)]; // 生我者
-          const suppressors = counts[keOf(state)]; // 克我者
+          const supporter = pred(state); // 生我者
+          const killer = keOf(state); // 克我者
+          const supporters = counts[supporter];
+          const suppressors = counts[killer];
 
           if (suppressors >= kill && suppressors > supporters) {
             result = 0;
             deaths++;
+            killedBy[killer]++;
           } else if (supporters >= grow && supporters > suppressors) {
             result = succ(state);
             transitions++;
+            advanced[state]++;
           }
         }
 
         next[i] = result;
+        totals[result]++;
         if (result !== 0) {
           population++;
           age[i] = result === state ? Math.min(255, age[i] + 1) : 1;
@@ -250,7 +307,7 @@ export class WuxingEngine {
     board.swap();
     this.generation++;
 
-    this.stats = { births, deaths, transitions, population };
+    this.stats = { births, deaths, transitions, population, flows: this.flows };
     return this.stats;
   }
 }

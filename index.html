@@ -73,6 +73,13 @@
               </div>
             </dl>
             <canvas id="spark" class="spark"></canvas>
+            <canvas id="flow-chart" class="spark" hidden></canvas>
+          </section>
+
+          <section class="block" id="ring-block" hidden>
+            <h2>生克流向</h2>
+            <canvas id="ring" class="ring"></canvas>
+            <p class="hint">外圈相生、内圈相克，线宽为本代次数；节点大小是按当前占比。</p>
           </section>
 
           <section class="block" id="brush-block" hidden>
@@ -83,6 +90,7 @@
 
           <section class="block" id="wuxing-block" hidden>
             <h2>生克参数</h2>
+            <div class="presets" id="param-presets"></div>
             <div class="row">
               <span class="slabel">生长</span>
               <input id="wuxing-grow" type="range" min="1" max="5" value="3" />
@@ -95,6 +103,7 @@
             </div>
             <div class="legend" id="legend"></div>
             <p class="hint">
+              点图例只看某一种元素。<br />
               生长：空格边长出邻居最多的元素「所生」。<br />
               克制：邻域里「克我者」≥ 阈值且多于「生我者」时此格被灭。<br />
               转化：「生我者」≥ 阈值且多于「克我者」时推进到「我生」。

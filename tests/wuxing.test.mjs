@@ -17,6 +17,7 @@ import {
   seedWorld,
   scatterStates,
   WUXING_STATES,
+  PARAM_PRESETS,
 } from '../js/core/wuxing.js';
 
 let passed = 0;
@@ -206,6 +207,93 @@ test('改变尺寸后引擎缓冲同步重建', () => {
   assert.equal(engine.age.length, 300);
   engine.step();
   assert.equal(engine.stats.population, board.countAlive());
+});
+
+console.log('\n流量统计');
+
+test('出生计入 bornFrom，归到「父元素所生」', () => {
+  // 四个对角木，只有中心空格能同时看到四个，避免边上还冒出别的空格
+  const { board, engine } = scene(0, [
+    [-1, -1, 1],
+    [1, -1, 1],
+    [-1, 1, 1],
+    [1, 1, 1],
+  ]);
+  engine.step();
+  const flows = engine.stats.flows;
+  assert.equal(flows.bornFrom[1], 1, '木是父，长出火');
+  assert.equal(flows.totals[2], 1);
+  assert.equal(flows.totals[0], 44, '7x7 里 44 个空格');
+  assert.equal(center(board), 2);
+});
+
+test('死亡计入 killedBy，归到「克我者」', () => {
+  const { engine } = scene(1, [
+    [-1, -1, 4],
+    [1, -1, 4],
+    [-1, 1, 4],
+    [1, 1, 4],
+  ]);
+  engine.step();
+  const flows = engine.stats.flows;
+  assert.equal(flows.killedBy[4], 1, '金克木');
+  assert.equal(flows.totals[1], 0, '木已死光');
+});
+
+test('转化计入 advanced', () => {
+  const { engine } = scene(1, [
+    [-1, -1, 5],
+    [1, -1, 5],
+    [-1, 1, 5],
+    [1, 1, 5],
+  ]);
+  engine.step();
+  const flows = engine.stats.flows;
+  assert.equal(flows.advanced[1], 1, '木推进到火');
+  assert.equal(flows.totals[2], 1);
+});
+
+test('totals 与棋盘、population 三者一致', () => {
+  const board = new Board(32, 32, true);
+  seedWorld(board, 0.3, mulberry32(21));
+  const engine = new WuxingEngine(board, { grow: 2, kill: 2 });
+  for (let i = 0; i < 20; i++) {
+    engine.step();
+    const totals = engine.stats.flows.totals;
+    assert.equal(
+      totals.reduce((a, b) => a + b, 0),
+      board.cells.length,
+    );
+    let alive = 0;
+    for (let v = 1; v <= 5; v++) alive += totals[v];
+    assert.equal(alive, engine.stats.population);
+  }
+});
+
+test('三档预设的活跃度递增：地块 < 涟漪 < 沸腾', () => {
+  const activity = (grow, kill) => {
+    const board = new Board(48, 48, true);
+    seedWorld(board, 0.3, mulberry32(31));
+    const engine = new WuxingEngine(board, { grow, kill });
+    let total = 0;
+    for (let i = 0; i < 40; i++) {
+      const stats = engine.step();
+      total += stats.births + stats.deaths + stats.transitions;
+    }
+    return total / (40 * board.cells.length);
+  };
+
+  const measured = PARAM_PRESETS.map((preset) => ({
+    label: preset.label,
+    activity: activity(preset.grow, preset.kill),
+  }));
+
+  for (let i = 1; i < measured.length; i++) {
+    assert.ok(
+      measured[i - 1].activity < measured[i].activity,
+      `${measured[i - 1].label}(${measured[i - 1].activity.toFixed(3)}) 应低于 ${measured[i].label}(${measured[i].activity.toFixed(3)})`,
+    );
+  }
 });
 
 console.log('\n初始化与长期行为');
