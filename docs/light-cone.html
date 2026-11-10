@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>光锥 · 交互演示</title>
+    <style>
+      :root {
+        --bg: #05080c;
+        --panel: #0b1219;
+        --line: rgba(148, 163, 184, 0.14);
+        --text: #e2e8f0;
+        --muted: #7b8b9e;
+        --accent: #35e0c8;
+        --event-b: #f472b6;
+        --frame: #fbbf24;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+          'Microsoft YaHei', sans-serif;
+        overflow: hidden;
+      }
+      .app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+      header {
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--line);
+      }
+      h1 { margin: 0; font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
+      header .sub { font-size: 12px; color: var(--muted); }
+      main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; min-height: 0; }
+      .stage { position: relative; min-width: 0; min-height: 0; }
+      canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+      canvas.dragging { cursor: grabbing; }
+      aside {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 16px;
+        border-left: 1px solid var(--line);
+        background: var(--panel);
+        overflow-y: auto;
+      }
+      .block h2 {
+        margin: 0 0 8px;
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        border: 1px solid transparent;
+      }
+      .badge.timelike { background: rgba(53, 224, 200, 0.14); color: #8ff5e4; border-color: rgba(53, 224, 200, 0.4); }
+      .badge.lightlike { background: rgba(251, 191, 36, 0.14); color: #fcd34d; border-color: rgba(251, 191, 36, 0.4); }
+      .badge.spacelike { background: rgba(244, 114, 182, 0.14); color: #f9a8d4; border-color: rgba(244, 114, 182, 0.4); }
+      .readout { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; font-size: 12.5px; }
+      .readout dt { color: var(--muted); }
+      .readout dd { margin: 0; font-family: var(--mono); text-align: right; }
+      .hint { margin: 8px 0 0; font-size: 11px; line-height: 1.6; color: var(--muted); }
+      .row { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 12px; }
+      input[type='range'] { flex: 1; accent-color: var(--frame); }
+      .val { font-family: var(--mono); color: var(--muted); min-width: 54px; text-align: right; }
+      label.check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #cbd5e1; cursor: pointer; margin-top: 6px; }
+      input[type='checkbox'] { accent-color: var(--accent); }
+      .legend { display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; color: var(--muted); }
+      .legend span { display: flex; align-items: center; gap: 8px; }
+      .legend i { width: 16px; height: 3px; border-radius: 2px; display: inline-block; }
+      button {
+        margin-top: 10px;
+        padding: 7px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(148, 163, 184, 0.06);
+        color: var(--text);
+        font: inherit;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+      button:hover { background: rgba(148, 163, 184, 0.13); }
+      @media (max-width: 860px) {
+        main { grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr auto; }
+        aside { border-left: none; border-top: 1px solid var(--line); max-height: 45vh; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>Light Cone</h1>
+        <span class="sub">拖动 A、B 两个事件 · 光速 c = 1（横轴是光秒，纵轴是秒）</span>
+      </header>
+      <main>
+        <div class="stage"><canvas id="scene"></canvas></div>
+        <aside>
+          <section class="block">
+            <h2>两个事件的关系</h2>
+            <span id="badge" class="badge timelike">类时</span>
+            <dl class="readout" style="margin-top: 10px">
+              <dt>Δx（空间）</dt><dd id="rdx">0</dd>
+              <dt>Δt（时间）</dt><dd id="rdt">0</dd>
+              <dt>s² = Δt² − Δx²</dt><dd id="rs2">0</dd>
+            </dl>
+            <p class="hint" id="explain"></p>
+          </section>
+
+          <section class="block">
+            <h2>参考系</h2>
+            <div class="row">
+              <span>速度 β</span>
+              <input id="beta" type="range" min="-90" max="90" value="0" />
+              <span class="val" id="betaVal">0.00 c</span>
+            </div>
+            <p class="hint">
+              虚线是「同时面」：同一条虚线上的事件，在这个参考系里算同时发生。
+              光锥不会动，只有切片在倾斜。
+            </p>
+          </section>
+
+          <section class="block">
+            <h2>显示</h2>
+            <label class="check"><input id="optGrid" type="checkbox" checked /> 显示格点（1 格 = 1 代）</label>
+            <label class="check"><input id="optSlice" type="checkbox" checked /> 显示同时面</label>
+            <button id="reset" type="button">重置</button>
+          </section>
+
+          <section class="block">
+            <h2>图例</h2>
+            <div class="legend">
+              <span><i style="background: #35e0c8"></i>A 的事件，以及它的光锥边界</span>
+              <span><i style="background: #f472b6"></i>B 的事件（可拖动）</span>
+              <span><i style="background: #fbbf24"></i>当前参考系的坐标线</span>
+            </div>
+          </section>
+
+          <section class="block">
+            <h2>三个区域</h2>
+            <p class="hint">
+              未来光锥内部：A 发个信号（速度 &lt; c）能到的地方，可能被 A 影响。<br />
+              边界：只有光能到。<br />
+              两侧：任何东西都到不了，也来不了——叫类空。
+            </p>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script>
+      const canvas = document.getElementById('scene');
+      const ctx = canvas.getContext('2d');
+      const $ = (id) => document.getElementById(id);
+
+      const COLORS = {
+        bg: '#05080c',
+        gridMajor: 'rgba(148, 163, 184, 0.16)',
+        gridMinor: 'rgba(148, 163, 184, 0.07)',
+        axis: 'rgba(148, 163, 184, 0.4)',
+        a: '#35e0c8',
+        b: '#f472b6',
+        frame: '#fbbf24',
+        futureFill: 'rgba(53, 224, 200, 0.07)',
+        pastFill: 'rgba(148, 163, 184, 0.06)',
+      };
+
+      const SCALE = 32; // 1 世界单位 = 32 px，保证光锥是精确 45°
+      const state = {
+        A: { x: -3, t: -3 },
+        B: { x: 5, t: 2 },
+        drag: null,
+        beta: 0,
+        grid: true,
+        slice: true,
+      };
+
+      let W = 0;
+      let H = 0;
+      let cx = 0;
+      let cy = 0;
+
+      const toPx = (p) => ({ x: cx + p.x * SCALE, y: cy - p.t * SCALE });
+      const toWorld = (px, py) => ({ x: (px - cx) / SCALE, t: (cy - py) / SCALE });
+
+      function resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        W = canvas.clientWidth;
+        H = canvas.clientHeight;
+        canvas.width = Math.round(W * dpr);
+        canvas.height = Math.round(H * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        cx = W / 2;
+        cy = H / 2;
+        draw();
+      }
+
+      /* ---------- 画布绘制 ---------- */
+
+      function draw() {
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = COLORS.bg;
+        ctx.fillRect(0, 0, W, H);
+
+        drawGrid();
+        drawCone(state.A);
+        if (state.slice) drawSlices(state.A);
+        drawPair();
+        drawEvent(state.A, COLORS.a, 'A');
+        drawEvent(state.B, COLORS.b, 'B');
+        drawCaption();
+      }
+
+      function drawGrid() {
+        const stepPx = SCALE;
+        ctx.lineWidth = 1;
+
+        for (let x = cx % stepPx; x < W; x += stepPx) {
+          const gx = Math.round((x - cx) / SCALE);
+          ctx.strokeStyle = gx % 5 === 0 ? COLORS.gridMajor : COLORS.gridMinor;
+          ctx.beginPath();
+          ctx.moveTo(Math.round(x) + 0.5, 0);
+          ctx.lineTo(Math.round(x) + 0.5, H);
+          ctx.stroke();
+        }
+
+        for (let y = cy % stepPx; y < H; y += stepPx) {
+          const gt = Math.round((cy - y) / SCALE);
+          ctx.strokeStyle = gt % 5 === 0 ? COLORS.gridMajor : COLORS.gridMinor;
+          ctx.beginPath();
+          ctx.moveTo(0, Math.round(y) + 0.5);
+          ctx.lineTo(W, Math.round(y) + 0.5);
+          ctx.stroke();
+        }
+
+        // 坐标轴
+        ctx.strokeStyle = COLORS.axis;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, cy + 0.5);
+        ctx.lineTo(W, cy + 0.5);
+        ctx.moveTo(cx + 0.5, 0);
+        ctx.lineTo(cx + 0.5, H);
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.55)';
+        ctx.font = '12px ui-monospace, monospace';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('x →', W - 8, cy - 6);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText('↑ t', cx + 8, 8);
+      }
+
+      function drawCone(a) {
+        const p = toPx(a);
+        const R = Math.max(W, H) * 2;
+
+        // 未来光锥
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + R, p.y - R);
+        ctx.lineTo(p.x - R, p.y - R);
+        ctx.closePath();
+        ctx.fillStyle = COLORS.futureFill;
+        ctx.fill();
+
+        // 过去光锥
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + R, p.y + R);
+        ctx.lineTo(p.x - R, p.y + R);
+        ctx.closePath();
+        ctx.fillStyle = COLORS.pastFill;
+        ctx.fill();
+
+        // 边界（斜率 ±1，正好 45°）
+        ctx.strokeStyle = 'rgba(53, 224, 200, 0.55)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(p.x - R, p.y + R);
+        ctx.lineTo(p.x, p.y);
+        ctx.lineTo(p.x + R, p.y - R);
+        ctx.moveTo(p.x - R, p.y - R);
+        ctx.lineTo(p.x, p.y);
+        ctx.lineTo(p.x + R, p.y + R);
+        ctx.stroke();
+
+        // 边界标注
+        ctx.fillStyle = 'rgba(53, 224, 200, 0.75)';
+        ctx.font = '11px -apple-system, "PingFang SC", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('光速边界（斜率 1）', p.x + 86, p.y - 74);
+        ctx.fillText('未来光锥', p.x + 10, p.y - 52);
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
+        ctx.fillText('过去光锥', p.x + 10, p.y + 52);
+      }
+
+      function drawSlices(a) {
+        const p = toPx(a);
+
+        // β = 0 的同时面（水平）
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, p.y);
+        ctx.lineTo(W, p.y);
+        ctx.stroke();
+
+        // 当前参考系的同时面：t = βx + 常数
+        if (Math.abs(state.beta) > 0.01) {
+          ctx.strokeStyle = 'rgba(251, 191, 36, 0.7)';
+          ctx.lineWidth = 1.4;
+          for (const offset of [-6, 0, 6]) {
+            const t0 = a.t + offset; // 世界坐标里的截距
+            // 世界坐标 → 屏幕坐标：t = βx + t0
+            const x1 = -W / SCALE;
+            const x2 = W / SCALE;
+            const pt1 = toPx({ x: x1, t: state.beta * x1 + t0 });
+            const pt2 = toPx({ x: x2, t: state.beta * x2 + t0 });
+            ctx.beginPath();
+            ctx.moveTo(pt1.x, pt1.y);
+            ctx.lineTo(pt2.x, pt2.y);
+            ctx.stroke();
+          }
+          ctx.setLineDash([]);
+
+          // 该参考系的「静止观察者」世界线：过 A 点，x = x_A + β(t − t_A)
+          // 它比光锥陡：速度越慢越接近竖直，β → 1 时才会贴到光锥上
+          ctx.strokeStyle = 'rgba(251, 191, 36, 0.55)';
+          ctx.lineWidth = 1.2;
+          const w1 = toPx({ x: a.x + state.beta * (-H / SCALE - a.t), t: -H / SCALE });
+          const w2 = toPx({ x: a.x + state.beta * (H / SCALE - a.t), t: H / SCALE });
+          ctx.beginPath();
+          ctx.moveTo(w1.x, w1.y);
+          ctx.lineTo(w2.x, w2.y);
+          ctx.stroke();
+
+          ctx.fillStyle = 'rgba(251, 191, 36, 0.85)';
+          ctx.font = '11px -apple-system, "PingFang SC", sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillText('虚线：同时面 t′ = 常数', 12, 18);
+          ctx.fillText(`实线：观察者世界线（β = ${state.beta.toFixed(2)}）`, 12, 34);
+        }
+
+        ctx.setLineDash([]);
+      }
+
+      function drawPair() {
+        const pa = toPx(state.A);
+        const pb = toPx(state.B);
+        ctx.strokeStyle = 'rgba(226, 232, 240, 0.5)';
+        ctx.setLineDash([5, 5]);
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      function drawEvent(p, color, label) {
+        const px = toPx(p);
+        ctx.beginPath();
+        ctx.arc(px.x, px.y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(5, 8, 12, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = color;
+        ctx.font = '600 13px ui-monospace, monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(label, px.x + 12, px.y - 8);
+      }
+
+      function drawCaption() {
+        if (!state.grid) return;
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.5)';
+        ctx.font = '11px -apple-system, "PingFang SC", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('1 格 = 1 代 · 光一代最多走 1 格', 12, H - 10);
+      }
+
+      /* ---------- 读数 ---------- */
+
+      function classify() {
+        const dx = state.B.x - state.A.x;
+        const dt = state.B.t - state.A.t;
+        const s2 = dt * dt - dx * dx;
+
+        $('rdx').textContent = dx.toFixed(1);
+        $('rdt').textContent = dt.toFixed(1);
+        $('rs2').textContent = s2.toFixed(1);
+
+        const badge = $('badge');
+        const explain = $('explain');
+
+        if (Math.abs(s2) < 0.15) {
+          badge.className = 'badge lightlike';
+          badge.textContent = '类光';
+          explain.textContent = '两点正好被一束光连上：只有以光速传播的东西能从一个到另一个。';
+        } else if (s2 > 0) {
+          badge.className = 'badge timelike';
+          badge.textContent = '类时';
+          explain.textContent =
+            'B 落在 A 的光锥里。A 可以派一艘慢船（速度 < c）到达 B，所以两件事有先后，先后不随参考系改变。';
+        } else {
+          badge.className = 'badge spacelike';
+          badge.textContent = '类空';
+          explain.textContent =
+            'B 在光锥外，任何信号都不可能从一个到另一个。谁先谁后由参考系决定：把滑块拖到一侧 B 在前，拖到另一侧 B 在后。';
+        }
+      }
+
+      /* ---------- 交互 ---------- */
+
+      function hit(px, py) {
+        for (const key of ['A', 'B']) {
+          const p = toPx(state[key]);
+          if (Math.hypot(px - p.x, py - p.y) < 16) return key;
+        }
+        return null;
+      }
+
+      canvas.addEventListener('pointerdown', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        const py = e.clientY - rect.top;
+        const key = hit(px, py);
+        if (!key) return;
+        state.drag = key;
+        canvas.setPointerCapture(e.pointerId);
+        canvas.classList.add('dragging');
+      });
+
+      canvas.addEventListener('pointermove', (e) => {
+        if (!state.drag) return;
+        const rect = canvas.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        const py = e.clientY - rect.top;
+        const world = toWorld(px, py);
+        // 限制在可见范围里，按 0.1 取整方便读数
+        const x = Math.max(-W / 2 / SCALE + 0.5, Math.min(W / 2 / SCALE - 0.5, world.x));
+        const t = Math.max(-H / 2 / SCALE + 0.5, Math.min(H / 2 / SCALE - 0.5, world.t));
+        state[state.drag] = { x: Math.round(x * 10) / 10, t: Math.round(t * 10) / 10 };
+        draw();
+        classify();
+      });
+
+      canvas.addEventListener('pointerup', (e) => {
+        if (!state.drag) return;
+        state.drag = null;
+        canvas.classList.remove('dragging');
+        if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+      });
+
+      $('beta').addEventListener('input', (e) => {
+        state.beta = Number(e.target.value) / 100;
+        $('betaVal').textContent = `${state.beta.toFixed(2)} c`;
+        draw();
+      });
+
+      $('optGrid').addEventListener('change', (e) => {
+        state.grid = e.target.checked;
+        draw();
+      });
+
+      $('optSlice').addEventListener('change', (e) => {
+        state.slice = e.target.checked;
+        draw();
+      });
+
+      $('reset').addEventListener('click', () => {
+        state.A = { x: -3, t: -3 };
+        state.B = { x: 5, t: 2 };
+        state.beta = 0;
+        $('beta').value = '0';
+        $('betaVal').textContent = '0.00 c';
+        draw();
+        classify();
+      });
+
+      new ResizeObserver(resize).observe(canvas.parentElement);
+      resize();
+      classify();
+    </script>
+  </body>
+</html>
