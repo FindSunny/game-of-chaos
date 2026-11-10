@@ -54,7 +54,13 @@
         <section class="stage" id="stage">
           <canvas id="board"></canvas>
           <div class="stage-hint">
-            左键绘制 · 右键擦除 · 空格播放/暂停 · 单步 <kbd>.</kbd>
+            左键绘制 · 右键擦除 · 滚轮缩放 · 中键拖动平移 · 空格播放/暂停
+          </div>
+          <div class="zoom-bar">
+            <button id="zoom-out" type="button" title="缩小">−</button>
+            <span id="zoom-level" class="mono">100%</span>
+            <button id="zoom-in" type="button" title="放大">+</button>
+            <button id="zoom-fit" type="button" title="适应窗口">适应</button>
           </div>
         </section>
 

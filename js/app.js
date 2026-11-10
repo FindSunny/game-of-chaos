@@ -445,7 +445,47 @@ function brushValue() {
 
 canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 
+/** 缩放显示：100% = 适应窗口时的格宽 */
+function updateZoomLabel() {
+  const ratio = (renderer.camera.zoom / renderer.fitZoom) * 100;
+  $('zoom-level').textContent = `${Math.round(ratio)}%`;
+}
+
+function fitView() {
+  renderer.fit(board);
+  updateZoomLabel();
+  render();
+}
+
+// 滚轮以光标为锚缩放
+canvas.addEventListener(
+  'wheel',
+  (event) => {
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const px = event.clientX - rect.left;
+    const py = event.clientY - rect.top;
+    renderer.zoomAt(px, py, Math.exp(-event.deltaY * 0.0015));
+    renderer.clampCamera(board);
+    updateZoomLabel();
+    render();
+  },
+  { passive: false },
+);
+
+// 中键拖动平移
+let panning = null;
+
 canvas.addEventListener('pointerdown', (event) => {
+  if (event.button === 1) {
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    panning = { x: event.clientX - rect.left, y: event.clientY - rect.top, id: event.pointerId };
+    canvas.setPointerCapture(event.pointerId);
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+
   const cell = renderer.pick(event, board);
   if (!cell) return;
 
@@ -464,6 +504,17 @@ canvas.addEventListener('pointerdown', (event) => {
 });
 
 canvas.addEventListener('pointermove', (event) => {
+  if (panning) {
+    const rect = canvas.getBoundingClientRect();
+    const px = event.clientX - rect.left;
+    const py = event.clientY - rect.top;
+    renderer.panBy(px - panning.x, py - panning.y);
+    renderer.clampCamera(board);
+    panning = { x: px, y: py, id: panning.id };
+    render();
+    return;
+  }
+
   const cell = renderer.pick(event, board);
   ui.hover = cell;
 
@@ -477,6 +528,13 @@ canvas.addEventListener('pointermove', (event) => {
 });
 
 canvas.addEventListener('pointerup', (event) => {
+  if (panning) {
+    panning = null;
+    canvas.style.cursor = '';
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    return;
+  }
+
   if (!ui.painting) return;
   ui.painting = false;
   ui.lastPaint = null;
@@ -777,9 +835,23 @@ function bindControls() {
     state.height = h;
     saveSettings();
     renderer.resize();
-    render();
+    fitView();
     drawCharts();
   });
+
+  $('zoom-in').addEventListener('click', () => zoomByButton(1.35));
+  $('zoom-out').addEventListener('click', () => zoomByButton(1 / 1.35));
+  $('zoom-fit').addEventListener('click', fitView);
+}
+
+/** 按钮缩放：以画布中心为锚 */
+function zoomByButton(factor) {
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  renderer.zoomAt(cw / 2, ch / 2, factor);
+  renderer.clampCamera(board);
+  updateZoomLabel();
+  render();
 }
 
 /* ---------- 键盘 ---------- */
@@ -841,6 +913,7 @@ function boot() {
   const resizeObserver = new ResizeObserver(() => {
     // resize 会重置画布像素尺寸（等于清空），必须立刻补画一帧
     renderer.resize();
+    renderer.clampCamera(board);
     render();
     drawCharts();
   });
@@ -855,6 +928,8 @@ function boot() {
   if (board.countAlive() === 0) randomizeBoard();
 
   renderer.resize();
+  renderer.fit(board);
+  updateZoomLabel();
   render();
   drawCharts();
   requestAnimationFrame(loop);

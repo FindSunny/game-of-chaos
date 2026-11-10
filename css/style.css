@@ -196,6 +196,52 @@ main {
   transition: background 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
 }
 
+/* 缩放工具条 */
+.zoom-bar {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(11, 18, 25, 0.9);
+  backdrop-filter: blur(6px);
+}
+
+.zoom-bar button {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.zoom-bar button:hover {
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.zoom-bar #zoom-fit {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.zoom-level {
+  min-width: 40px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  user-select: none;
+}
+
 .btn:hover {
   background: rgba(148, 163, 184, 0.13);
   border-color: var(--line-strong);

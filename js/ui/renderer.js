@@ -21,6 +21,12 @@ export class Renderer {
     this.ox = 0;
     this.oy = 0;
 
+    /** 相机：zoom = 每格多少像素，ox/oy = 网格左上角在画布上的位置 */
+    this.camera = { zoom: 8, ox: 0, oy: 0 };
+    this.fitZoom = 8;
+    this.minZoom = 1;
+    this.maxZoom = 40;
+
     // 年龄色阶：索引越大表示活得越久
     this.ramp = [
       '#0e7490',
@@ -45,15 +51,67 @@ export class Renderer {
   }
 
   /**
-   * 根据网格与画布尺寸算出格子边长与居中偏移
+   * 适应窗口：把整张网格装进画布并居中
    * @param {import('../core/board.js').Board} board
    */
-  measure(board) {
+  fit(board) {
     const cw = this.canvas.clientWidth;
     const ch = this.canvas.clientHeight;
-    this.cell = Math.max(2, Math.floor(Math.min(cw / board.width, ch / board.height)));
-    this.ox = Math.floor((cw - this.cell * board.width) / 2);
-    this.oy = Math.floor((ch - this.cell * board.height) / 2);
+    if (!cw || !ch) return;
+
+    const zoom = Math.max(
+      this.minZoom,
+      Math.min(this.maxZoom, Math.floor(Math.min(cw / board.width, ch / board.height))),
+    );
+    this.fitZoom = zoom;
+    this.camera.zoom = zoom;
+    this.camera.ox = Math.round((cw - board.width * zoom) / 2);
+    this.camera.oy = Math.round((ch - board.height * zoom) / 2);
+  }
+
+  /**
+   * 以画布内的某个点为锚缩放（滚轮缩放就是用它）
+   * @param {number} px 画布坐标
+   * @param {number} py 画布坐标
+   * @param {number} factor >1 放大，<1 缩小
+   */
+  zoomAt(px, py, factor) {
+    const camera = this.camera;
+    const next = Math.max(this.minZoom, Math.min(this.maxZoom, camera.zoom * factor));
+    if (Math.abs(next - camera.zoom) < 1e-6) return;
+
+    // 锚点下方的世界坐标在缩放前后保持不动
+    const wx = (px - camera.ox) / camera.zoom;
+    const wy = (py - camera.oy) / camera.zoom;
+    camera.zoom = next;
+    camera.ox = px - wx * next;
+    camera.oy = py - wy * next;
+  }
+
+  panBy(dx, dy) {
+    this.camera.ox += dx;
+    this.camera.oy += dy;
+  }
+
+  /**
+   * 平移限位：至少把网格的一角留在画布里，避免拖丢
+   * @param {import('../core/board.js').Board} board
+   */
+  clampCamera(board) {
+    const cw = this.canvas.clientWidth;
+    const ch = this.canvas.clientHeight;
+    const w = board.width * this.camera.zoom;
+    const h = board.height * this.camera.zoom;
+    const margin = 60;
+    this.camera.ox = Math.min(cw - margin, Math.max(margin - w, this.camera.ox));
+    this.camera.oy = Math.min(ch - margin, Math.max(margin - h, this.camera.oy));
+  }
+
+  /** 把相机状态同步成绘制用的格宽与偏移 */
+  measure() {
+    this.cell = this.camera.zoom;
+    this.ox = this.camera.ox;
+    this.oy = this.camera.oy;
   }
 
   /**
@@ -67,7 +125,7 @@ export class Renderer {
     const ch = this.canvas.clientHeight;
     if (!cw || !ch) return;
 
-    this.measure(board);
+    this.measure();
     const { cell, ox, oy } = this;
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
