@@ -103,6 +103,7 @@ js/ui/patterns.js     图样库（字符画 + RLE 解码）
 js/ui/ring.js         五行流向环
 js/ui/timeseries.js   五态时间曲线
 js/app.js             装配层：循环、输入、控件、模式切换
+scripts/deploy.sh     同步到服务器的脚本
 tests/engine.test.mjs 生命游戏回归测试
 tests/wuxing.test.mjs 五行引擎回归测试
 ```
@@ -121,7 +122,43 @@ npm test
 
 覆盖：规则串解析与容错、方块稳定、闪烁器周期 2、滑翔机平移、边界处理、
 滑翔机枪周期、双缓冲交换；生克关系互逆、三条规则各自触发条件、生克数量持平、
-阈值可调、环绕边界、统计自洽、同种子可复现、长期不灭绝且五态共存、结构不成噪点。
+阈值可调、环绕边界、统计自洽、同种子可复现、长期不灭绝且五态共存、结构不成噪点、
+流量统计、三档预设活跃度递增。
+
+## 部署
+
+纯静态站点，任何能提供静态文件的服务器都行（Nginx / Caddy / 甚至 `python -m http.server`）。
+
+仓库里带了一个同步脚本，只负责传文件：
+
+```bash
+SERVER=<公网IP> SSH_USER=<用户> SSH_KEY=~/.ssh/<密钥> ./scripts/deploy.sh
+```
+
+它会把文件打包上传到 `/var/www/game-of-chaos`，然后在服务器本机跑一次 `curl` 自检。
+
+Caddy 侧需要一段把路径前缀指向静态目录的配置（脚本不会自动改它）：
+
+```caddyfile
+@chaosRoot path /chaos
+redir @chaosRoot /chaos/ 308
+
+handle_path /chaos/* {
+	root * /var/www/game-of-chaos
+	file_server
+}
+```
+
+改完先备份、再校验，最后才 reload：
+
+```bash
+sudo cp -a /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak-$(date +%Y%m%d-%H%M%S)
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+站点内所有资源都用相对路径，所以挂在 `/chaos/` 这种子路径下不需要改代码。
+注意 ES 模块要求 `Content-Type: text/javascript`，Caddy 的 `file_server` 默认就是。
 
 ## 路线
 
