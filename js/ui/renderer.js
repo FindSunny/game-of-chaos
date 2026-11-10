@@ -1,0 +1,159 @@
+/**
+ * 渲染层：只认网格数据，不参与演化计算。
+ *
+ * 用 Canvas 2D 逐格绘制。格子数在几万级别、存活率通常 5% 上下，
+ * 逐格 fillRect 足够快，不需要做区块缓存。
+ *
+ * 细胞颜色按「连续存活代数」渐变：刚出生的偏暗青，活得久的偏亮青白，
+ * 这样一眼能看出哪些结构在移动、哪些已经稳定下来。
+ */
+export class Renderer {
+  /** @param {HTMLCanvasElement} canvas */
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.cell = 6;
+    this.ox = 0;
+    this.oy = 0;
+
+    // 年龄色阶：索引越大表示活得越久
+    this.ramp = [
+      '#0e7490',
+      '#0891b2',
+      '#06b6d4',
+      '#22d3ee',
+      '#67e8f9',
+      '#a5f3fc',
+      '#cffafe',
+      '#ecfeff',
+    ];
+  }
+
+  /** 画布像素尺寸跟随 CSS 尺寸，按设备像素比放大保证清晰 */
+  resize() {
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    if (!w || !h) return;
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = Math.round(w * this.dpr);
+    this.canvas.height = Math.round(h * this.dpr);
+  }
+
+  /**
+   * 根据网格与画布尺寸算出格子边长与居中偏移
+   * @param {import('../core/board.js').Board} board
+   */
+  measure(board) {
+    const cw = this.canvas.clientWidth;
+    const ch = this.canvas.clientHeight;
+    this.cell = Math.max(2, Math.floor(Math.min(cw / board.width, ch / board.height)));
+    this.ox = Math.floor((cw - this.cell * board.width) / 2);
+    this.oy = Math.floor((ch - this.cell * board.height) / 2);
+  }
+
+  /**
+   * @param {import('../core/board.js').Board} board
+   * @param {import('../core/engine.js').Engine} engine
+   * @param {{colorByAge: boolean, showGrid: boolean, hover: {x:number,y:number}|null, ghost: [number,number][]|null}} opts
+   */
+  draw(board, engine, opts) {
+    const { ctx } = this;
+    const cw = this.canvas.clientWidth;
+    const ch = this.canvas.clientHeight;
+    if (!cw || !ch) return;
+
+    this.measure(board);
+    const { cell, ox, oy } = this;
+
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.fillStyle = '#05080c';
+    ctx.fillRect(0, 0, cw, ch);
+
+    // 网格底板，比画布背景略亮，让边界看得见
+    ctx.fillStyle = '#0a1119';
+    ctx.fillRect(ox, oy, cell * board.width, cell * board.height);
+
+    const inset = cell >= 5 ? 1 : 0;
+    const size = cell - inset;
+
+    // 细胞：按年龄分色，色值只在变化时切换
+    let currentColor = '';
+    for (let y = 0; y < board.height; y++) {
+      const row = y * board.width;
+      const py = oy + y * cell;
+      for (let x = 0; x < board.width; x++) {
+        const i = row + x;
+        if (board.cells[i] === 0) continue;
+
+        const color = opts.colorByAge
+          ? this.ramp[Math.min(engine.age[i], this.ramp.length - 1)]
+          : '#35e0c8';
+        if (color !== currentColor) {
+          ctx.fillStyle = color;
+          currentColor = color;
+        }
+        ctx.fillRect(ox + x * cell, py, size, size);
+      }
+    }
+
+    // 网格线
+    if (opts.showGrid && cell >= 5) {
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.07)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = 0; x <= board.width; x++) {
+        const px = ox + x * cell + 0.5;
+        ctx.moveTo(px, oy);
+        ctx.lineTo(px, oy + cell * board.height);
+      }
+      for (let y = 0; y <= board.height; y++) {
+        const py = oy + y * cell + 0.5;
+        ctx.moveTo(ox, py);
+        ctx.lineTo(ox + cell * board.width, py);
+      }
+      ctx.stroke();
+    }
+
+    // 待放置图样的预览
+    if (opts.ghost && opts.hover) {
+      ctx.fillStyle = 'rgba(53, 224, 200, 0.35)';
+      for (const [gx, gy] of opts.ghost) {
+        const x = opts.hover.x + gx;
+        const y = opts.hover.y + gy;
+        if (x < 0 || y < 0 || x >= board.width || y >= board.height) continue;
+        ctx.fillRect(ox + x * cell, oy + y * cell, size, size);
+      }
+    }
+
+    // 光标所在格子的高亮框
+    if (opts.hover) {
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.45)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(
+        ox + opts.hover.x * cell + 0.5,
+        oy + opts.hover.y * cell + 0.5,
+        cell - 1,
+        cell - 1,
+      );
+    }
+
+    // 外框
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ox + 0.5, oy + 0.5, cell * board.width - 1, cell * board.height - 1);
+  }
+
+  /**
+   * 事件坐标转格子坐标，界外返回 null
+   * @param {PointerEvent} ev
+   * @param {import('../core/board.js').Board} board
+   */
+  pick(ev, board) {
+    const rect = this.canvas.getBoundingClientRect();
+    const x = Math.floor((ev.clientX - rect.left - this.ox) / this.cell);
+    const y = Math.floor((ev.clientY - rect.top - this.oy) / this.cell);
+    if (x < 0 || y < 0 || x >= board.width || y >= board.height) return null;
+    return { x, y };
+  }
+}
