@@ -54,6 +54,7 @@ const DEFAULTS = {
   particlePreset: 'Gliders',
   particleCount: 400,
   particleWrap: true,
+  particleTrace: true,
 };
 
 /** 本地时间着色：越绿越新，越蓝越落后 */
@@ -211,7 +212,12 @@ function asyncColor(index) {
 
 function render() {
   if (state.mode === 'particle') {
-    renderer.drawParticles(engine, { showGrid: false, radius: 5, hover: ui.hover });
+    renderer.drawParticles(engine, {
+      showGrid: false,
+      radius: 5,
+      hover: ui.hover,
+      trace: state.particleTrace,
+    });
     return;
   }
 
@@ -956,6 +962,14 @@ function bindControls() {
       engine.setOptions({ wrap: state.particleWrap });
     }
     saveSettings();
+  });
+
+  const trace = $('opt-trace');
+  trace.checked = state.particleTrace;
+  trace.addEventListener('change', () => {
+    state.particleTrace = trace.checked;
+    saveSettings();
+    render();
   });
 
   const wrap = $('opt-wrap');

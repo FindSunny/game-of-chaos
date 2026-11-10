@@ -141,9 +141,9 @@ export class Renderer {
   }
 
   /**
-   * 粒子世界：连续坐标，逐粒子画圆
+   * 粒子世界：连续坐标，逐粒子画圆；开启描边时再沿速度方向画一段线
    * @param {import('../core/particle-life.js').ParticleLifeEngine} engine
-   * @param {{showGrid: boolean, radius: number, hover: {x:number,y:number}|null, ghost: null}} opts
+   * @param {{showGrid: boolean, radius: number, hover: {x:number,y:number}|null, ghost: null, trace?: boolean}} opts
    */
   drawParticles(engine, opts) {
     const { ctx } = this;
@@ -163,25 +163,63 @@ export class Renderer {
     ctx.lineWidth = 1;
     ctx.strokeRect(ox + 0.5, oy + 0.5, engine.width * zoom - 1, engine.height * zoom - 1);
 
-    const r = Math.max(1, opts.radius * zoom);
+    const trace = Boolean(opts.trace);
+    // 描边模式下圆点画小一点，让速度线成为主体
+    const r = Math.max(1, opts.radius * zoom * (trace ? 0.62 : 1));
     const colors = engine.colors;
     let currentType = -1;
 
-    ctx.globalAlpha = 0.92;
     for (let i = 0; i < engine.count; i++) {
-      const px = ox + engine.x[i] * zoom;
-      const py = oy + engine.y[i] * zoom;
-      if (px < -r || py < -r || px > cw + r || py > ch + r) continue;
+      const wx = engine.x[i];
+      const wy = engine.y[i];
+      const px = ox + wx * zoom;
+      const py = oy + wy * zoom;
+      if (px < -r - 24 || py < -r - 24 || px > cw + r + 24 || py > ch + r + 24) continue;
 
       const type = engine.type[i];
       if (type !== currentType) {
-        ctx.fillStyle = colors[type] || '#35e0c8';
+        const color = colors[type] || '#35e0c8';
+        ctx.fillStyle = color;
+        ctx.strokeStyle = color;
         currentType = type;
       }
+
+      if (trace) {
+        // 速度方向：长度随速度增长，但封顶，避免快的粒子拖出一条长线
+        const vx = engine.vx[i];
+        const vy = engine.vy[i];
+        const speed = Math.hypot(vx, vy);
+        if (speed > 0.02) {
+          const len = Math.min(26, 6 + speed * 30);
+          const ux = vx / speed;
+          const uy = vy / speed;
+          const tipX = px + ux * len;
+          const tipY = py + uy * len;
+
+          ctx.globalAlpha = 0.55;
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(px + ux * r, py + uy * r);
+          ctx.lineTo(tipX, tipY);
+          ctx.stroke();
+
+          // 箭头两撇
+          ctx.globalAlpha = 0.75;
+          ctx.beginPath();
+          ctx.moveTo(tipX, tipY);
+          ctx.lineTo(tipX - ux * 4 - uy * 2.4, tipY - uy * 4 + ux * 2.4);
+          ctx.moveTo(tipX, tipY);
+          ctx.lineTo(tipX - ux * 4 + uy * 2.4, tipY - uy * 4 - ux * 2.4);
+          ctx.stroke();
+        }
+      }
+
+      ctx.globalAlpha = 0.92;
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.fill();
     }
+
     ctx.globalAlpha = 1;
 
     if (opts.hover) {
