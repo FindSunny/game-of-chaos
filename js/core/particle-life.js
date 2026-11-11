@@ -103,6 +103,9 @@ export class ParticleLifeEngine {
     this.infinite = options.infinite ?? false;
     // 手动指定摩擦时优先用它；换预设会清掉，回到预设自带的值
     this.frictionOverride = options.friction ?? null;
+    // 两个全局倍率：作用半径放大 -> 团块能吸住更远的粒子；引力放大 -> 结构更黏
+    this.radiusScale = options.radiusScale ?? 1;
+    this.forceScale = options.forceScale ?? 1;
     this.presetName = options.preset ?? 'Balanced';
     this.seedValue = options.seed ?? 20261110;
     this.countOverride = options.count ?? null;
@@ -163,12 +166,11 @@ export class ParticleLifeEngine {
     this.vy = new Float32Array(this.count);
     this.type = new Uint8Array(this.count);
 
-    // 网格边长取全局最大作用半径，保证邻近 9 格能覆盖所有可能产生力的粒子对
-    let maxRadius = 0;
-    for (let k = 0; k < this.maxR.length; k++) {
-      if (this.maxR[k] > maxRadius) maxRadius = this.maxR[k];
-    }
-    this.cellSize = Math.max(8, maxRadius);
+    // 基准矩阵留一份：调「作用半径 / 引力」时按比例重算，不叠加
+    this.attractBase = Float32Array.from(this.attract);
+    this.minRBase = Float32Array.from(this.minR);
+    this.maxRBase = Float32Array.from(this.maxR);
+    this.applyScales();
 
     for (let i = 0; i < this.count; i++) {
       this.type[i] = Math.floor(this.rng() * n);
@@ -184,9 +186,30 @@ export class ParticleLifeEngine {
   }
 
   /**
-   * 只重掷吸引力矩阵，粒子位置/类型不变。
-   * 用途：调矩阵时保留当前这团粒子，立刻看到新规则的效果。
+   * 按「作用半径 / 引力」两个倍率重算矩阵。
+   * 基准值存在 *Base 里，所以反复拖动滑杆不会累积放大。
    */
+  applyScales() {
+    const rs = this.radiusScale;
+    const fs = this.forceScale;
+
+    for (let k = 0; k < this.attract.length; k++) {
+      this.attract[k] = this.attractBase[k] * fs;
+      this.minR[k] = this.minRBase[k] * rs;
+      this.maxR[k] = this.maxRBase[k] * rs;
+    }
+
+    // 网格边长依赖最大作用半径，半径变了要跟着变
+    let maxRadius = 0;
+    for (let k = 0; k < this.maxR.length; k++) {
+      if (this.maxR[k] > maxRadius) maxRadius = this.maxR[k];
+    }
+    this.cellSize = Math.max(8, maxRadius);
+    this.hashGrid = null;
+  }
+
+  /** 只重掷吸引力矩阵，粒子位置/类型不变。
+   *  用途：调矩阵时保留当前这团粒子，立刻看到新规则的效果。 */
   randomizeAttract() {
     const n = this.nTypes;
     const preset = PARTICLE_PRESETS[this.presetName] || PARTICLE_PRESETS.Balanced;
@@ -200,18 +223,21 @@ export class ParticleLifeEngine {
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < n; j++) {
         const idx = i * n + j;
-        this.attract[idx] =
+        this.attractBase[idx] =
           i === j ? -Math.abs(normal(attractMean, attractStd)) : normal(attractMean, attractStd);
       }
     }
+    this.applyScales();
   }
 
-  /** 单格修改吸引力；夹在 ±0.25，避免手滑把粒子甩飞 */
+  /** 单格修改吸引力（界面里看到的实际值）；夹在 ±0.25，避免手滑把粒子甩飞 */
   setAttract(i, j, value) {
     const n = this.nTypes;
     if (i < 0 || j < 0 || i >= n || j >= n) return;
     const clamped = Math.max(-0.25, Math.min(0.25, value));
     this.attract[i * n + j] = clamped;
+    // 基准值 = 实际值 / 引力倍率，保证之后调倍率时不会被重复放大
+    this.attractBase[i * n + j] = clamped / (this.forceScale || 1);
     return clamped;
   }
 
@@ -262,6 +288,14 @@ export class ParticleLifeEngine {
       this.reset(options.preset);
     }
     if (options.friction !== undefined) this.setFriction(options.friction);
+    if (options.radiusScale !== undefined) {
+      this.radiusScale = Math.max(0.3, Math.min(3, Number(options.radiusScale) || 1));
+      this.applyScales();
+    }
+    if (options.forceScale !== undefined) {
+      this.forceScale = Math.max(0.2, Math.min(3, Number(options.forceScale) || 1));
+      this.applyScales();
+    }
     if (options.wrap !== undefined) this.wrap = options.wrap;
     if (options.infinite !== undefined && options.infinite !== this.infinite) {
       this.infinite = options.infinite;

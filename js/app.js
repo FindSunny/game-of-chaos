@@ -59,6 +59,8 @@ const DEFAULTS = {
   particlePreset: 'Gliders',
   particleCount: 400,
   particleFriction: null, // null = 跟随预设；拖动滑杆后变成手调值
+  particleRadiusScale: 1, // 作用半径整体倍率
+  particleForceScale: 1, // 引力整体倍率
   particleWrap: true,
   particleInfinite: false, // 无限画布：没有边界、没有环绕
   particleTrace: false, // 描边（速度箭头）默认关，先只看圆点
@@ -168,6 +170,8 @@ function createEngine() {
       preset: state.particlePreset,
       count: state.particleCount,
       friction: state.particleFriction ?? undefined,
+      radiusScale: state.particleRadiusScale,
+      forceScale: state.particleForceScale,
       wrap: state.particleWrap,
       infinite: state.particleInfinite,
     };
@@ -1135,6 +1139,32 @@ function bindControls() {
     $('particle-friction-val').textContent = value.toFixed(2);
     if (state.mode === 'particle' && engine.setOptions) {
       engine.setOptions({ friction: value });
+    }
+    saveSettings();
+  });
+
+  const radiusScale = $('particle-radius');
+  radiusScale.value = Math.round(state.particleRadiusScale * 100);
+  $('particle-radius-val').textContent = `${state.particleRadiusScale.toFixed(1)}×`;
+  radiusScale.addEventListener('input', () => {
+    const value = Number(radiusScale.value) / 100;
+    state.particleRadiusScale = value;
+    $('particle-radius-val').textContent = `${value.toFixed(1)}×`;
+    if (state.mode === 'particle' && engine.setOptions) {
+      engine.setOptions({ radiusScale: value });
+    }
+    saveSettings();
+  });
+
+  const forceScale = $('particle-force');
+  forceScale.value = Math.round(state.particleForceScale * 100);
+  $('particle-force-val').textContent = `${state.particleForceScale.toFixed(1)}×`;
+  forceScale.addEventListener('input', () => {
+    const value = Number(forceScale.value) / 100;
+    state.particleForceScale = value;
+    $('particle-force-val').textContent = `${value.toFixed(1)}×`;
+    if (state.mode === 'particle' && engine.setOptions) {
+      engine.setOptions({ forceScale: value });
     }
     saveSettings();
   });

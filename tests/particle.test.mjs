@@ -292,4 +292,40 @@ test('摩擦越小，同样步数后平均速度越大', () => {
   assert.ok(speeds[1] > speeds[0], `摩擦小的应该更快：${speeds[1].toFixed(2)} vs ${speeds[0].toFixed(2)}`);
 });
 
+console.log('\n作用半径 / 引力倍率');
+
+test('作用半径倍率整体放大 maxR 和网格边长', () => {
+  const e = new ParticleLifeEngine(1200, 800, { preset: 'Gliders', count: 200 });
+  const before = Math.max(...e.maxR);
+  const cellBefore = e.cellSize;
+  e.setOptions({ radiusScale: 2 });
+  assert.ok(Math.abs(Math.max(...e.maxR) - before * 2) < 1e-3);
+  assert.ok(Math.abs(e.cellSize - cellBefore * 2) < 1e-3, '网格边长要跟着放大，否则会漏邻居');
+});
+
+test('反复设同一个倍率不会累积放大', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Gliders', count: 100 });
+  const before = Math.max(...e.maxR);
+  for (let i = 0; i < 5; i++) e.setOptions({ radiusScale: 1.5 });
+  assert.ok(Math.abs(Math.max(...e.maxR) - before * 1.5) < 1e-3);
+});
+
+test('引力倍率缩放 attract，且不改变半径', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Gliders', count: 100 });
+  const att = e.getAttract(0, 1);
+  const maxR = Math.max(...e.maxR);
+  e.setOptions({ forceScale: 1.5 });
+  assert.ok(Math.abs(e.getAttract(0, 1) - att * 1.5) < 1e-6);
+  assert.ok(Math.abs(Math.max(...e.maxR) - maxR) < 1e-6);
+});
+
+test('手改单格后再调引力倍率，不会把那格重复放大', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Gliders', count: 100 });
+  e.setAttract(0, 1, 0.08);
+  e.setOptions({ forceScale: 2 });
+  assert.ok(Math.abs(e.getAttract(0, 1) - 0.16) < 1e-6, `应随倍率一起变 0.16，实际 ${e.getAttract(0, 1)}`);
+  e.setOptions({ forceScale: 1 });
+  assert.ok(Math.abs(e.getAttract(0, 1) - 0.08) < 1e-6, '回到 1 倍应还原为手改值');
+});
+
 console.log(`\n全部通过：${passed} 项\n`);
