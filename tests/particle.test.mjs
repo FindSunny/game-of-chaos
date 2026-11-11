@@ -328,4 +328,83 @@ test('手改单格后再调引力倍率，不会把那格重复放大', () => {
   assert.ok(Math.abs(e.getAttract(0, 1) - 0.08) < 1e-6, '回到 1 倍应还原为手改值');
 });
 
+console.log('\n线性软核 / dt 归一化');
+
+/** 造一对几乎重合的粒子，落在 minR 之内 */
+function overlappingPair(repel) {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Gliders', count: 2, repel });
+  e.x[0] = 100;
+  e.y[0] = 100;
+  e.x[1] = 101;
+  e.y[1] = 100;
+  e.vx[0] = 0;
+  e.vy[0] = 0;
+  e.vx[1] = 0;
+  e.vy[1] = 0;
+  e.type[0] = 0;
+  e.type[1] = 1;
+  const idx = 0 * e.nTypes + 1;
+  const mirror = 1 * e.nTypes + 0;
+  e.minR[idx] = e.minR[mirror] = 20;
+  e.maxR[idx] = e.maxR[mirror] = 50;
+  return e;
+}
+
+test('排斥强度为 0 时，minR 内的粒子之间没有任何力', () => {
+  const e = overlappingPair(0);
+  e.step();
+  assert.equal(e.vx[0], 0);
+  assert.equal(e.vx[1], 0);
+});
+
+test('排斥强度越大，同距离下推得越快', () => {
+  const weak = overlappingPair(0.5);
+  const strong = overlappingPair(2);
+  weak.step();
+  strong.step();
+  assert.ok(Math.abs(strong.vx[0]) > Math.abs(weak.vx[0]) * 3, '2.0 应明显推得更狠');
+  assert.ok(weak.vx[0] < 0 && strong.vx[0] < 0, '0 号粒子应被推向负方向');
+});
+
+test('dt 归一化：两个半步 ≈ 一个整步', () => {
+  const single = new ParticleLifeEngine(1200, 800, { preset: 'Gliders', count: 300, seed: 5 });
+  const double = new ParticleLifeEngine(1200, 800, { preset: 'Gliders', count: 300, seed: 5 });
+
+  single.step(1 / 60);
+  double.step(1 / 120);
+  double.step(1 / 120);
+
+  let s1 = 0;
+  let s2 = 0;
+  for (let i = 0; i < single.count; i++) {
+    s1 += Math.hypot(single.vx[i], single.vy[i]);
+    s2 += Math.hypot(double.vx[i], double.vy[i]);
+  }
+  const a = s1 / single.count;
+  const b = s2 / double.count;
+  assert.ok(Math.abs(a - b) / Math.max(a, 1e-6) < 0.05, `平均速度应接近：${a.toFixed(4)} vs ${b.toFixed(4)}`);
+});
+
+test('速度上限默认关闭：极端挤压下会超过 6', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Gliders', count: 40, repel: 3 });
+  for (let i = 0; i < e.count; i++) {
+    e.x[i] = 200 + (i % 8) * 0.5;
+    e.y[i] = 150 + Math.floor(i / 8) * 0.5;
+    e.vx[i] = 0;
+    e.vy[i] = 0;
+    e.type[i] = i % 3;
+  }
+  for (let i = 0; i < e.nTypes; i++) {
+    for (let j = 0; j < e.nTypes; j++) {
+      const k = i * e.nTypes + j;
+      e.minR[k] = 20;
+      e.maxR[k] = 40;
+    }
+  }
+  e.step();
+  let max = 0;
+  for (let i = 0; i < e.count; i++) max = Math.max(max, Math.hypot(e.vx[i], e.vy[i]));
+  assert.ok(max > 6, `应不封顶，实际最大速度 ${max.toFixed(2)}`);
+});
+
 console.log(`\n全部通过：${passed} 项\n`);

@@ -61,6 +61,7 @@ const DEFAULTS = {
   particleFriction: null, // null = 跟随预设；拖动滑杆后变成手调值
   particleRadiusScale: 1, // 作用半径整体倍率
   particleForceScale: 1, // 引力整体倍率
+  particleRepel: 1, // 软核排斥强度
   particleWrap: true,
   particleInfinite: false, // 无限画布：没有边界、没有环绕
   particleTrace: false, // 描边（速度箭头）默认关，先只看圆点
@@ -172,6 +173,7 @@ function createEngine() {
       friction: state.particleFriction ?? undefined,
       radiusScale: state.particleRadiusScale,
       forceScale: state.particleForceScale,
+      repel: state.particleRepel,
       wrap: state.particleWrap,
       infinite: state.particleInfinite,
     };
@@ -1165,6 +1167,19 @@ function bindControls() {
     $('particle-force-val').textContent = `${value.toFixed(1)}×`;
     if (state.mode === 'particle' && engine.setOptions) {
       engine.setOptions({ forceScale: value });
+    }
+    saveSettings();
+  });
+
+  const repel = $('particle-repel');
+  repel.value = Math.round(state.particleRepel * 100);
+  $('particle-repel-val').textContent = `${state.particleRepel.toFixed(1)}×`;
+  repel.addEventListener('input', () => {
+    const value = Number(repel.value) / 100;
+    state.particleRepel = value;
+    $('particle-repel-val').textContent = `${value.toFixed(1)}×`;
+    if (state.mode === 'particle' && engine.setOptions) {
+      engine.setOptions({ repel: value });
     }
     saveSettings();
   });

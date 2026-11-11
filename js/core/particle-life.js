@@ -14,15 +14,13 @@
 
 const RADIUS = 5.0;
 const DIAMETER = RADIUS * 2;
-const R_SMOOTH = 2.0;
 
 /**
- * 速度上限（世界单位/步）。
- * 力是逐步累加的加速度，没有上限的话，密集团块里几个粒子被软核排斥同时推开，
- * 速度能冲到 17（正常约 1.5），表现为「团块突然炸开」。
- * 这里封顶，只削掉异常值，不改变正常动力学。
+ * 速度上限（世界单位/步）。0 = 不封顶（当前默认，和 sandbox-science 一致）。
+ * 力是逐步累加的加速度，不封顶时密集团块里几个粒子同时被软核推开，
+ * 速度能冲到十几倍，表现为「团块突然炸开」。想压住就把它设成 6。
  */
-const MAX_SPEED = 6;
+const MAX_SPEED = 0;
 const MAX_SPEED2 = MAX_SPEED * MAX_SPEED;
 
 /** 与 fnky/particle-life 相同的预设，8 个参数依次是
@@ -104,6 +102,8 @@ export class ParticleLifeEngine {
     // 手动指定摩擦时优先用它；换预设会清掉，回到预设自带的值
     this.frictionOverride = options.friction ?? null;
     // 两个全局倍率：作用半径放大 -> 团块能吸住更远的粒子；引力放大 -> 结构更黏
+    // 软核排斥强度：r < minR 时的硬度，1 = 界面滑杆的 1.0
+    this.repel = options.repel ?? 1;
     this.radiusScale = options.radiusScale ?? 1;
     this.forceScale = options.forceScale ?? 1;
     this.presetName = options.preset ?? 'Balanced';
@@ -288,6 +288,9 @@ export class ParticleLifeEngine {
       this.reset(options.preset);
     }
     if (options.friction !== undefined) this.setFriction(options.friction);
+    if (options.repel !== undefined) {
+      this.repel = Math.max(0, Math.min(5, Number(options.repel) || 0));
+    }
     if (options.radiusScale !== undefined) {
       this.radiusScale = Math.max(0.3, Math.min(3, Number(options.radiusScale) || 1));
       this.applyScales();
@@ -390,13 +393,24 @@ export class ParticleLifeEngine {
     this.gridRows = rows;
   }
 
-  /** 推进一帧 */
-  step() {
+  /**
+   * 推进一帧。
+   * @param {number} dtSeconds 这一步代表的仿真时间；默认 1/60 秒（一个 60Hz tick）
+   *
+   * dt 归一化照搬 sandbox-science：力按 dt*60 缩放，位置也按 dt*60 前进，
+   * 摩擦用 (1-friction)^(dt*60) 保证掉帧时阻尼一致。
+   * 默认参数下 dt*60 = 1，和以前每步固定一步完全等价。
+   */
+  step(dtSeconds = 1 / 60) {
     const { x, y, vx, vy, type, attract, minR, maxR, nTypes, count: n } = this;
     const width = this.width;
     const height = this.height;
     const wrap = this.wrap;
     const infinite = this.infinite;
+
+    const dt = Math.max(1e-4, Math.min(0.1, dtSeconds));
+    const tick = dt * 60; // 60Hz 时 = 1
+    const repel = this.repel;
 
     this.buildGrid();
     const cols = this.gridCols;
@@ -471,7 +485,10 @@ export class ParticleLifeEngine {
                 f = attract[idx] * (1 - numer / denom);
               }
             } else {
-              f = R_SMOOTH * lo * (1 / (lo + R_SMOOTH) - 1 / (r + R_SMOOTH));
+              // 线性软核（照搬 sandbox-science 的写法）：
+              // r = minR 处为 0，越靠近越排斥，r → 0 时等于「排斥强度」。
+              // 比之前的 1/(r+2) 平滑更硬、更可调。
+              f = (r / lo - 1) * repel;
             }
 
             ax += f * dx;
@@ -480,25 +497,29 @@ export class ParticleLifeEngine {
         }
       }
 
-      vx[i] += ax;
-      vy[i] += ay;
+      vx[i] += ax * tick;
+      vy[i] += ay * tick;
     }
 
-    const damp = 1 - this.friction;
+    const damp = Math.pow(1 - this.friction, tick);
     for (let i = 0; i < n; i++) {
-      let px = x[i] + vx[i];
-      let py = y[i] + vy[i];
+      // 先阻尼再积分（和 sandbox-science 的顺序一致）
       vx[i] *= damp;
       vy[i] *= damp;
 
-      // 速度封顶：团块被挤压时软核排斥会瞬间给出很大的加速度，
-      // 不截断就会把粒子以十几倍于正常的速度甩出去，看着像突然爆炸。
-      const speed2 = vx[i] * vx[i] + vy[i] * vy[i];
-      if (speed2 > MAX_SPEED2) {
-        const k = MAX_SPEED / Math.sqrt(speed2);
-        vx[i] *= k;
-        vy[i] *= k;
+      // 速度上限：默认关闭（MAX_SPEED = 0 表示不封顶）。
+      // 想防「团块突然炸开」把它设成 6 左右即可，代价是削掉极端速度。
+      if (MAX_SPEED > 0) {
+        const speed2 = vx[i] * vx[i] + vy[i] * vy[i];
+        if (speed2 > MAX_SPEED2) {
+          const k = MAX_SPEED / Math.sqrt(speed2);
+          vx[i] *= k;
+          vy[i] *= k;
+        }
       }
+
+      let px = x[i] + vx[i] * tick;
+      let py = y[i] + vy[i] * tick;
 
       if (infinite) {
         // 无限世界：没有墙也没有环绕，粒子想去哪去哪

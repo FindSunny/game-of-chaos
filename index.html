@@ -103,6 +103,11 @@
               <input id="particle-force" type="range" min="50" max="200" step="5" value="100" />
               <span id="particle-force-val" class="value mono">1.0×</span>
             </div>
+            <div class="row">
+              <span class="slabel" title="r &lt; minR 时的硬芯排斥强度；调小能挤得更密，调大团块更松散">排斥</span>
+              <input id="particle-repel" type="range" min="0" max="300" step="5" value="100" />
+              <span id="particle-repel-val" class="value mono">1.0×</span>
+            </div>
             <label class="check"><input id="opt-particle-wrap" type="checkbox" /> 边界环绕</label>
             <label class="check" title="没有边界、没有环绕，粒子可以一直往外飘，画布可以无限平移缩放"><input id="opt-particle-infinite" type="checkbox" /> 无限画布</label>
             <label class="check"><input id="opt-trace" type="checkbox" /> 描边：显示速度方向</label>
