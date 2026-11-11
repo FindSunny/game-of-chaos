@@ -58,6 +58,7 @@ const DEFAULTS = {
   // 粒子生命
   particlePreset: 'Gliders',
   particleCount: 400,
+  particleFriction: null, // null = 跟随预设；拖动滑杆后变成手调值
   particleWrap: true,
   particleInfinite: false, // 无限画布：没有边界、没有环绕
   particleTrace: false, // 描边（速度箭头）默认关，先只看圆点
@@ -166,6 +167,7 @@ function createEngine() {
     const options = {
       preset: state.particlePreset,
       count: state.particleCount,
+      friction: state.particleFriction ?? undefined,
       wrap: state.particleWrap,
       infinite: state.particleInfinite,
     };
@@ -578,6 +580,7 @@ function applyModeUI() {
   if (particle) {
     forceMatrix.setEngine(engine);
     updateMatrixReadout(null, null);
+    syncFrictionSlider();
   }
 }
 
@@ -935,6 +938,19 @@ function renderParticlePresets() {
   select.value = state.particlePreset;
 }
 
+/** 预设自带的摩擦值；没手调过就跟着它走 */
+function presetFriction() {
+  return PARTICLE_PRESETS[state.particlePreset]?.params?.[6] ?? 0.1;
+}
+
+/** 把摩擦滑杆同步到当前值（滑杆刻度是 0.001 一格） */
+function syncFrictionSlider() {
+  const value = state.particleFriction ?? presetFriction();
+  state.particleFriction = value;
+  $('particle-friction').value = Math.round(value * 1000);
+  $('particle-friction-val').textContent = value.toFixed(2);
+}
+
 /* ---------- 面板绑定 ---------- */
 
 function applyRule(text) {
@@ -1103,9 +1119,23 @@ function bindControls() {
   const particlePreset = $('particle-preset');
   particlePreset.addEventListener('change', () => {
     state.particlePreset = particlePreset.value;
+    // 换预设就丢掉手调摩擦，回到新预设自带的值
+    state.particleFriction = null;
     if (engine.setOptions) engine.setOptions({ preset: state.particlePreset });
+    syncFrictionSlider();
     saveSettings();
     render();
+  });
+
+  const particleFriction = $('particle-friction');
+  particleFriction.addEventListener('input', () => {
+    const value = Number(particleFriction.value) / 1000;
+    state.particleFriction = value;
+    $('particle-friction-val').textContent = value.toFixed(2);
+    if (state.mode === 'particle' && engine.setOptions) {
+      engine.setOptions({ friction: value });
+    }
+    saveSettings();
   });
 
   const particleCount = $('particle-count');

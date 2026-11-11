@@ -92,6 +92,8 @@ export class ParticleLifeEngine {
     this.wrap = options.wrap ?? false;
     // 无限世界：没有墙、没有环绕，坐标可以为负，相机可以一直往外拖
     this.infinite = options.infinite ?? false;
+    // 手动指定摩擦时优先用它；换预设会清掉，回到预设自带的值
+    this.frictionOverride = options.friction ?? null;
     this.presetName = options.preset ?? 'Balanced';
     this.seedValue = options.seed ?? 20261110;
     this.countOverride = options.count ?? null;
@@ -108,7 +110,9 @@ export class ParticleLifeEngine {
 
     this.rng = mulberry32(this.seedValue);
     this.nTypes = preset.types;
-    this.friction = friction;
+    // 手调过摩擦就一直用手动值，直到换预设
+    this.friction = this.frictionOverride ?? friction;
+    this.presetFriction = friction;
     this.flatForce = flatForce;
     this.count = this.countOverride ?? preset.particles;
 
@@ -233,8 +237,22 @@ export class ParticleLifeEngine {
     return this.steps;
   }
 
+  /** 摩擦：每步速度衰减的比例。越大越快停下来，也越好静下来形成结构 */
+  setFriction(value) {
+    const v = Number(value);
+    if (!Number.isFinite(v)) return this.friction;
+    this.frictionOverride = Math.max(0.001, Math.min(0.4, v));
+    this.friction = this.frictionOverride;
+    return this.friction;
+  }
+
   setOptions(options) {
-    if (options.preset !== undefined) this.reset(options.preset);
+    if (options.preset !== undefined) {
+      // 换预设时丢掉手动摩擦，回到预设自带的值
+      this.frictionOverride = null;
+      this.reset(options.preset);
+    }
+    if (options.friction !== undefined) this.setFriction(options.friction);
     if (options.wrap !== undefined) this.wrap = options.wrap;
     if (options.infinite !== undefined && options.infinite !== this.infinite) {
       this.infinite = options.infinite;

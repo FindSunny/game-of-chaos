@@ -256,4 +256,40 @@ test('切到无限世界会把粒子团挪回视野中心', () => {
   assert.equal(e.infinite, true);
 });
 
+console.log('\n摩擦');
+
+test('预设自带摩擦：Gliders 是 0.1，Chaos 是 0.01', () => {
+  assert.equal(new ParticleLifeEngine(400, 300, { preset: 'Gliders' }).friction, 0.1);
+  assert.equal(new ParticleLifeEngine(400, 300, { preset: 'Chaos' }).friction, 0.01);
+});
+
+test('手调摩擦会被夹在 0.001 - 0.4', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Gliders' });
+  e.setOptions({ friction: 9 });
+  assert.equal(e.friction, 0.4);
+  e.setOptions({ friction: -3 });
+  assert.equal(e.friction, 0.001);
+});
+
+test('改数量不会丢掉手调摩擦，换预设才回到预设值', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Gliders' });
+  e.setOptions({ friction: 0.02 });
+  e.setOptions({ count: 500 });
+  assert.equal(e.friction, 0.02, '改数量不该重置摩擦');
+  e.setOptions({ preset: 'Chaos' });
+  assert.equal(e.friction, 0.01, '换预设应回到预设自带的值');
+});
+
+test('摩擦越小，同样步数后平均速度越大', () => {
+  const speeds = [0.2, 0.01].map((friction) => {
+    const e = new ParticleLifeEngine(1200, 800, { preset: 'Gliders', count: 800, seed: 42 });
+    e.setOptions({ friction });
+    for (let i = 0; i < 120; i++) e.step();
+    let sum = 0;
+    for (let i = 0; i < e.count; i++) sum += Math.hypot(e.vx[i], e.vy[i]);
+    return sum / e.count;
+  });
+  assert.ok(speeds[1] > speeds[0], `摩擦小的应该更快：${speeds[1].toFixed(2)} vs ${speeds[0].toFixed(2)}`);
+});
+
 console.log(`\n全部通过：${passed} 项\n`);

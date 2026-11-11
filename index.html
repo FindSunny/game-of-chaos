@@ -88,6 +88,11 @@
               <input id="particle-count" type="range" min="100" max="5000" step="100" value="400" />
               <span id="particle-count-val" class="value mono">400</span>
             </div>
+            <div class="row">
+              <span class="slabel">摩擦</span>
+              <input id="particle-friction" type="range" min="1" max="300" step="5" value="100" />
+              <span id="particle-friction-val" class="value mono">0.10</span>
+            </div>
             <label class="check"><input id="opt-particle-wrap" type="checkbox" /> 边界环绕</label>
             <label class="check" title="没有边界、没有环绕，粒子可以一直往外飘，画布可以无限平移缩放"><input id="opt-particle-infinite" type="checkbox" /> 无限画布</label>
             <label class="check"><input id="opt-trace" type="checkbox" /> 描边：显示速度方向</label>
