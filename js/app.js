@@ -46,10 +46,12 @@ const DEFAULTS = {
   isolate: 0,
   // 异步模式
   trigger: 'period', // period | trigger
+  seedMode: 'global', // global 全局随机 | causal 因果布种
   cone: true, // 严格光锥
   asyncRate: 2, // 每格每秒更新次数
   asyncC: 1, // 光速 格/秒
   localTime: true, // 按本地时间着色
+  showWave: true, // 显示因果波前（被访问过但仍为空的格子）
   // 粒子生命
   particlePreset: 'Gliders',
   particleCount: 400,
@@ -116,6 +118,7 @@ function createEngine() {
   if (state.mode === 'async') {
     return new AsyncLifeEngine(board, lifeRule, {
       mode: state.trigger,
+      seeded: state.seedMode,
       strictCone: state.cone,
       rate: state.asyncRate,
       c: state.asyncC,
@@ -228,6 +231,9 @@ function render() {
     isolate: state.mode === 'wuxing' ? state.isolate : 0,
     colorByAge: state.age && !asyncMode && !infinite,
     colorFor: asyncMode ? asyncColor : null,
+    ghostEmpty: asyncMode && state.showWave ? 'rgba(53, 224, 200, 0.07)' : null,
+    // 累积足迹：因果可达过的区域（含空地被扫过的部分），能看出锥形扩张
+    isVisited: asyncMode ? (i) => engine.stamp[i] > 0 : null,
     showGrid: state.grid,
     hover: ui.hover,
     ghost: ui.pending ? ui.pending.cells : null,
@@ -380,6 +386,34 @@ function cameraCenter() {
   };
 }
 
+/** 因果布种：中心撒一小块，再放四个滑翔机往外飞。
+ *  随机汤很快会静下来，波前就停在原地；滑翔机一直在制造「变化」，
+ *  因果足迹才会沿对角线持续延伸。 */
+function seedCausal() {
+  board.clear();
+  const cx = Math.floor(board.width / 2);
+  const cy = Math.floor(board.height / 2);
+  const half = 10;
+  for (let dy = -half; dy <= half; dy++) {
+    for (let dx = -half; dx <= half; dx++) {
+      if (Math.random() < state.density) board.set(cx + dx, cy + dy, 1);
+    }
+  }
+
+  const glider = PATTERNS.find((p) => p.id === 'glider').cells;
+  const corners = [
+    [-16, -16],
+    [16, -16],
+    [-16, 16],
+    [16, 16],
+  ];
+  corners.forEach(([ox, oy], k) => {
+    let cells = glider;
+    for (let r = 0; r < k; r++) cells = rotatePattern(cells);
+    for (const [dx, dy] of cells) board.set(cx + ox + dx, cy + oy + dy, 1);
+  });
+}
+
 /** 按当前模式重新播种 */
 function randomizeBoard() {
   if (state.mode === 'particle') {
@@ -394,6 +428,8 @@ function randomizeBoard() {
     const width = Math.min(560, Math.max(200, Math.ceil((canvas.clientWidth / zoom) * 1.25)));
     const height = Math.min(400, Math.max(150, Math.ceil((canvas.clientHeight / zoom) * 1.25)));
     board.randomize(state.density, Math.random, center.x, center.y, width, height);
+  } else if (state.mode === 'async' && state.seedMode === 'causal') {
+    seedCausal();
   } else {
     board.randomize(state.density);
   }
@@ -456,6 +492,8 @@ function applyModeUI() {
   renderLegend();
   renderPresets();
   renderParticlePresets();
+  syncTriggerButtons();
+  syncSeedButtons();
 }
 
 /** 速度滑杆在异步模式下是倍速，粒子模式是每帧步数，其余模式是「代/秒」 */
@@ -784,6 +822,18 @@ function renderPresets() {
 
 /* ---------- 粒子预设 ---------- */
 
+function syncTriggerButtons() {
+  for (const btn of $('trigger-switch').querySelectorAll('button')) {
+    btn.classList.toggle('is-active', btn.dataset.trigger === state.trigger);
+  }
+}
+
+function syncSeedButtons() {
+  for (const btn of $('seed-switch').querySelectorAll('button')) {
+    btn.classList.toggle('is-active', btn.dataset.seed === state.seedMode);
+  }
+}
+
 function renderParticlePresets() {
   const select = $('particle-preset');
   if (select.options.length === 0) {
@@ -881,14 +931,35 @@ function bindControls() {
 
   /* ---------- 异步模式控件 ---------- */
 
+  const seedBox = $('seed-switch');
+  for (const btn of seedBox.querySelectorAll('button')) {
+    btn.classList.toggle('is-active', btn.dataset.seed === state.seedMode);
+    btn.addEventListener('click', () => {
+      state.seedMode = btn.dataset.seed;
+      // 因果布种必须配邻居触发：周期模式下外围格子按自己的钟走，
+      // 永远不会被「波前」唤醒，播种就白做了
+      if (state.seedMode === 'causal' && state.trigger !== 'trigger') {
+        state.trigger = 'trigger';
+        syncTriggerButtons();
+      }
+      for (const other of seedBox.querySelectorAll('button')) {
+        other.classList.toggle('is-active', other === btn);
+      }
+      if (engine.setOptions) {
+        engine.setOptions({ seeded: state.seedMode, mode: state.trigger });
+      }
+      randomizeBoard();
+      saveSettings();
+      render();
+    });
+  }
+
   const triggerBox = $('trigger-switch');
   for (const btn of triggerBox.querySelectorAll('button')) {
     btn.classList.toggle('is-active', btn.dataset.trigger === state.trigger);
     btn.addEventListener('click', () => {
       state.trigger = btn.dataset.trigger;
-      for (const other of triggerBox.querySelectorAll('button')) {
-        other.classList.toggle('is-active', other === btn);
-      }
+      syncTriggerButtons();
       if (engine.setOptions) engine.setOptions({ mode: state.trigger });
       saveSettings();
       render();
@@ -927,6 +998,14 @@ function bindControls() {
   localTime.checked = state.localTime;
   localTime.addEventListener('change', () => {
     state.localTime = localTime.checked;
+    saveSettings();
+    render();
+  });
+
+  const wave = $('opt-wave');
+  wave.checked = state.showWave;
+  wave.addEventListener('change', () => {
+    state.showWave = wave.checked;
     saveSettings();
     render();
   });

@@ -170,6 +170,44 @@ test('周期模式持续排期，不会处理完首批事件就停摆', () => {
   assert.ok(engine.heap.size > 0, '队列不应为空');
 });
 
+test('因果布种：只给活细胞排期，其余等波前唤醒', () => {
+  const { board, engine } = makeEngine({ seeded: 'causal', mode: 'trigger', c: 1 });
+  board.clear();
+  board.set(4, 4, 1);
+  board.set(5, 4, 1);
+  engine.reset();
+
+  let scheduled = 0;
+  for (let i = 0; i < engine.due.length; i++) if (engine.due[i] < Infinity) scheduled++;
+  assert.equal(scheduled, 2, `只应排期 2 个种子格，实际 ${scheduled}`);
+
+  const far = board.index(0, 0);
+  assert.equal(engine.due[far], Infinity, '远处的格子不该有自己的时钟');
+});
+
+test('因果布种：波前会按 1/c 一层层唤醒外围', () => {
+  const { board, engine } = makeEngine({ seeded: 'causal', mode: 'trigger', c: 2 });
+  board.clear();
+  board.set(4, 4, 1); // 孤立细胞，第一拍必死 → 产生一次变化
+  engine.reset();
+  engine.advance(1);
+
+  // 相邻格在这 1 秒里至少被唤醒过一次（c = 2 → 0.5 秒到达）
+  const neighbor = board.index(4, 3);
+  assert.ok(engine.stamp[neighbor] > 0, '邻居应被波前唤醒过');
+  const far = board.index(0, 0);
+  assert.equal(engine.stamp[far], 0, '远处仍不该被唤醒');
+});
+
+test('全局布种：所有格子一开始都有事可做', () => {
+  const { board, engine } = makeEngine({ seeded: 'global' });
+  board.randomize(0.3);
+  engine.reset();
+  let scheduled = 0;
+  for (let i = 0; i < engine.due.length; i++) if (engine.due[i] < Infinity) scheduled++;
+  assert.equal(scheduled, board.cells.length);
+});
+
 console.log('\n可复现性');
 
 /** 给棋盘播种也要可复现，否则测的是 Math.random */

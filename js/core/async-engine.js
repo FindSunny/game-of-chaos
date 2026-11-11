@@ -110,6 +110,7 @@ function mulberry32(seed) {
 
 export const ASYNC_DEFAULTS = {
   mode: 'period', // period | trigger
+  seeded: 'global', // global 铺满全局随机 | causal 只从活细胞那块开始
   strictCone: true, // 是否禁止超光速读取
   rate: 2, // 每格平均每秒更新次数（period 模式）
   c: 1, // 光速：格 / 秒
@@ -155,15 +156,18 @@ export class AsyncLifeEngine {
    * @param {Partial<typeof ASYNC_DEFAULTS>} options
    */
   setOptions(options) {
-    const modeChanged = options.mode && options.mode !== this.options.mode;
+    const needsRebuild =
+      (options.mode && options.mode !== this.options.mode) ||
+      (options.seeded && options.seeded !== this.options.seeded);
     this.options = { ...this.options, ...options };
-    if (modeChanged) this.reset();
+    if (needsRebuild) this.reset();
   }
 
   /** 重新播种：清空队列，把每个格子按当前模式排进堆 */
   reset() {
     const n = this.board.width * this.board.height;
-    const { mode, rate, c, jitter } = this.options;
+    const { mode, rate, c, jitter, seeded } = this.options;
+    const causal = seeded === 'causal';
 
     this.heap.clear();
     this.due.fill(Infinity);
@@ -179,6 +183,9 @@ export class AsyncLifeEngine {
     this.lastDeaths = 0;
 
     for (let i = 0; i < n; i++) {
+      // 因果布种：只让已经活着的格子进入队列，其余等波前推过来再被唤醒
+      if (causal && this.board.cells[i] === 0) continue;
+
       // 周期模式：初始相位随机撒在一个周期内，避免全体同时开火
       // 触发模式：给每个格子一个随机的小延迟，作为第一波扰动
       const phase =

@@ -145,6 +145,10 @@
 
           <section class="block" id="async-block" hidden>
             <h2>异步因果</h2>
+            <div class="presets" id="seed-switch">
+              <button class="preset-btn is-active" type="button" data-seed="global" title="整张棋盘随机撒点，等价于一个全局同时的初始切片">全局随机</button>
+              <button class="preset-btn" type="button" data-seed="causal" title="只从中心一小块开始，事件也只从这块往外传">因果布种</button>
+            </div>
             <div class="presets" id="trigger-switch">
               <button class="preset-btn is-active" type="button" data-trigger="period" title="每个格子按自己的时钟周期更新">周期</button>
               <button class="preset-btn" type="button" data-trigger="trigger" title="只有邻居变化时才更新">邻居触发</button>
@@ -161,6 +165,7 @@
               <span id="async-c-val" class="value mono">1 格/秒</span>
             </div>
             <label class="check"><input id="opt-localtime" type="checkbox" checked /> 按本地时间着色</label>
+            <label class="check"><input id="opt-wave" type="checkbox" checked /> 显示因果波前（扫过的空地）</label>
             <dl class="readout-mini">
               <dt>仿真时间</dt><dd id="async-time" class="mono">0.0 s</dd>
               <dt>队列</dt><dd id="async-queue" class="mono">0</dd>
@@ -169,6 +174,8 @@
             <p class="hint">
               没有「第 t 代」：每个格子有自己的时钟。严格光锥下，一个格子只能读到邻居
               「已经送到」的状态，超前的读不到。<br />
+              因果布种只在中心撒一小块，事件也只从这块开始，波前按 1/c 往外推；
+              全局随机则是一开始整张棋盘同时有事件。<br />
               邻居触发模式没有扰动时会静止，点画布或按「随机」重新点火。
             </p>
           </section>

@@ -269,6 +269,21 @@ export class Renderer {
     const inset = cell >= 5 ? 1 : 0;
     const size = cell - inset;
 
+    // 因果波前：被事件访问过、但当前是空的格子，用极暗底色标出来。
+    // 没有这一层，「波前扫过空地」在画面上完全不可见——空地本来不画。
+    if (opts.ghostEmpty && opts.isVisited) {
+      ctx.fillStyle = opts.ghostEmpty;
+      for (let y = 0; y < board.height; y++) {
+        const row = y * board.width;
+        for (let x = 0; x < board.width; x++) {
+          const i = row + x;
+          if (board.cells[i] !== 0) continue;
+          if (!opts.isVisited(i)) continue;
+          ctx.fillRect(ox + x * cell, oy + y * cell, size, size);
+        }
+      }
+    }
+
     // 细胞：按状态取色（五行）或按年龄取色（生命游戏），色值只在变化时切换
     let currentColor = '';
     for (let y = 0; y < board.height; y++) {
