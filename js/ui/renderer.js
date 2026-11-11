@@ -167,24 +167,52 @@ export class Renderer {
     // 描边模式下圆点画小一点，让速度线成为主体
     const r = Math.max(1, opts.radius * zoom * (trace ? 0.62 : 1));
     const colors = engine.colors;
-    let currentType = -1;
 
-    for (let i = 0; i < engine.count; i++) {
-      const wx = engine.x[i];
-      const wy = engine.y[i];
-      const px = ox + wx * zoom;
-      const py = oy + wy * zoom;
-      if (px < -r - 24 || py < -r - 24 || px > cw + r + 24 || py > ch + r + 24) continue;
+    // 普通模式：按类型攒成一个 Path2D，每类只 fill 一次。
+    // 1200 个粒子逐次 beginPath/arc/fill 是主要的渲染开销，合并后只有 6 次绘制调用。
+    if (!trace) {
+      const paths = new Map();
+      for (let i = 0; i < engine.count; i++) {
+        const wx = engine.x[i];
+        const wy = engine.y[i];
+        const px = ox + wx * zoom;
+        const py = oy + wy * zoom;
+        if (px < -r || py < -r || px > cw + r || py > ch + r) continue;
 
-      const type = engine.type[i];
-      if (type !== currentType) {
-        const color = colors[type] || '#35e0c8';
-        ctx.fillStyle = color;
-        ctx.strokeStyle = color;
-        currentType = type;
+        const type = engine.type[i];
+        let path = paths.get(type);
+        if (!path) {
+          path = new Path2D();
+          paths.set(type, path);
+        }
+        // 每个圆要单独起一个子路径，否则会被连成一条线
+        path.moveTo(px + r, py);
+        path.arc(px, py, r, 0, Math.PI * 2);
       }
 
-      if (trace) {
+      ctx.globalAlpha = 0.92;
+      for (const [type, path] of paths) {
+        ctx.fillStyle = colors[type] || '#35e0c8';
+        ctx.fill(path);
+      }
+      ctx.globalAlpha = 1;
+    } else {
+      let currentType = -1;
+      for (let i = 0; i < engine.count; i++) {
+        const wx = engine.x[i];
+        const wy = engine.y[i];
+        const px = ox + wx * zoom;
+        const py = oy + wy * zoom;
+        if (px < -r - 24 || py < -r - 24 || px > cw + r + 24 || py > ch + r + 24) continue;
+
+        const type = engine.type[i];
+        if (type !== currentType) {
+          const color = colors[type] || '#35e0c8';
+          ctx.fillStyle = color;
+          ctx.strokeStyle = color;
+          currentType = type;
+        }
+
         // 速度方向：长度随速度增长，但封顶，避免快的粒子拖出一条长线
         const vx = engine.vx[i];
         const vy = engine.vy[i];
@@ -212,15 +240,14 @@ export class Renderer {
           ctx.lineTo(tipX - ux * 4 + uy * 2.4, tipY - uy * 4 - ux * 2.4);
           ctx.stroke();
         }
+
+        ctx.globalAlpha = 0.92;
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fill();
       }
-
-      ctx.globalAlpha = 0.92;
-      ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.globalAlpha = 1;
     }
-
-    ctx.globalAlpha = 1;
 
     if (opts.hover) {
       ctx.strokeStyle = 'rgba(226, 232, 240, 0.5)';

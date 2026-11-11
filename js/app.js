@@ -211,9 +211,15 @@ function loop(now) {
     if (state.mode === 'async') {
       tick(dt);
     } else if (state.mode === 'particle') {
-      // 粒子生命每帧走一步就是原版速度；速度滑杆变成「每帧几步」
-      const steps = Math.max(1, Math.round(state.speed / 10));
-      for (let k = 0; k < steps; k++) engine.step();
+      // 粒子生命每帧走一步就是原版速度；速度滑杆是「每帧几步」。
+      // 但真的跑满会撑爆一帧，所以按时间预算截断：宁可慢一点，也别卡死。
+      const wanted = Math.max(1, Math.round(state.speed / 10));
+      const start = performance.now();
+      let ran = 0;
+      while (ran < wanted && (ran === 0 || performance.now() - start < 10)) {
+        engine.step();
+        ran++;
+      }
       recordHistory(engine.stats.population);
     } else {
       const interval = 1000 / state.speed;

@@ -141,6 +141,13 @@ export class ParticleLifeEngine {
     this.vy = new Float32Array(this.count);
     this.type = new Uint8Array(this.count);
 
+    // 网格边长取全局最大作用半径，保证邻近 9 格能覆盖所有可能产生力的粒子对
+    let maxRadius = 0;
+    for (let k = 0; k < this.maxR.length; k++) {
+      if (this.maxR[k] > maxRadius) maxRadius = this.maxR[k];
+    }
+    this.cellSize = Math.max(8, maxRadius);
+
     for (let i = 0; i < this.count; i++) {
       this.type[i] = Math.floor(this.rng() * n);
       this.x[i] = (this.rng() * 0.5 + 0.25) * this.width;
@@ -237,12 +244,48 @@ export class ParticleLifeEngine {
     this.stats.population = this.count;
   }
 
+  /**
+   * 空间网格：把粒子按格子分桶，只跟邻近 9 个桶比。
+   * 格子边长取全局最大作用半径，保证不会漏掉任何能产生力的粒子对。
+   */
+  buildGrid() {
+    const { x, y, count: n } = this;
+    const cell = this.cellSize;
+    const cols = Math.max(1, Math.ceil(this.width / cell));
+    const rows = Math.max(1, Math.ceil(this.height / cell));
+
+    if (!this.buckets || this.buckets.length !== cols * rows) {
+      this.buckets = Array.from({ length: cols * rows }, () => []);
+    } else {
+      for (const bucket of this.buckets) bucket.length = 0;
+    }
+
+    for (let i = 0; i < n; i++) {
+      let cx = Math.floor(x[i] / cell);
+      let cy = Math.floor(y[i] / cell);
+      if (cx < 0) cx = 0;
+      else if (cx >= cols) cx = cols - 1;
+      if (cy < 0) cy = 0;
+      else if (cy >= rows) cy = rows - 1;
+      this.buckets[cy * cols + cx].push(i);
+    }
+
+    this.gridCols = cols;
+    this.gridRows = rows;
+  }
+
   /** 推进一帧 */
   step() {
     const { x, y, vx, vy, type, attract, minR, maxR, nTypes, count: n } = this;
     const width = this.width;
     const height = this.height;
     const wrap = this.wrap;
+
+    this.buildGrid();
+    const cols = this.gridCols;
+    const rows = this.gridRows;
+    const buckets = this.buckets;
+    const reach = this.cellSize;
 
     for (let i = 0; i < n; i++) {
       const px = x[i];
@@ -251,43 +294,65 @@ export class ParticleLifeEngine {
       let ax = 0;
       let ay = 0;
 
-      for (let j = 0; j < n; j++) {
-        if (i === j) continue;
-        let dx = x[j] - px;
-        let dy = y[j] - py;
+      // 只扫自己所在格子和周围 8 格
+      let gx = Math.floor(px / reach);
+      let gy = Math.floor(py / reach);
+      if (gx < 0) gx = 0;
+      else if (gx >= cols) gx = cols - 1;
+      if (gy < 0) gy = 0;
+      else if (gy >= rows) gy = rows - 1;
 
-        if (wrap) {
-          if (dx > width * 0.5) dx -= width;
-          else if (dx < -width * 0.5) dx += width;
-          if (dy > height * 0.5) dy -= height;
-          else if (dy < -height * 0.5) dy += height;
-        }
+      for (let oy = -1; oy <= 1; oy++) {
+        let cy = gy + oy;
+        if (wrap) cy = (cy + rows) % rows;
+        else if (cy < 0 || cy >= rows) continue;
 
-        const r2 = dx * dx + dy * dy;
-        const idx = ti + type[j];
-        const lo = minR[idx];
-        const hi = maxR[idx];
-        if (r2 > hi * hi || r2 < 0.01) continue;
+        for (let ox = -1; ox <= 1; ox++) {
+          let cx = gx + ox;
+          if (wrap) cx = (cx + cols) % cols;
+          else if (cx < 0 || cx >= cols) continue;
 
-        const r = Math.sqrt(r2);
-        dx /= r;
-        dy /= r;
+          const bucket = buckets[cy * cols + cx];
+          for (let b = 0; b < bucket.length; b++) {
+            const j = bucket[b];
+            if (i === j) continue;
+            let dx = x[j] - px;
+            let dy = y[j] - py;
 
-        let f;
-        if (r > lo) {
-          if (this.flatForce) {
-            f = attract[idx];
-          } else {
-            const numer = 2 * Math.abs(r - 0.5 * (hi + lo));
-            const denom = hi - lo;
-            f = attract[idx] * (1 - numer / denom);
+            if (wrap) {
+              if (dx > width * 0.5) dx -= width;
+              else if (dx < -width * 0.5) dx += width;
+              if (dy > height * 0.5) dy -= height;
+              else if (dy < -height * 0.5) dy += height;
+            }
+
+            const r2 = dx * dx + dy * dy;
+            const idx = ti + type[j];
+            const lo = minR[idx];
+            const hi = maxR[idx];
+            if (r2 > hi * hi || r2 < 0.01) continue;
+
+            const r = Math.sqrt(r2);
+            dx /= r;
+            dy /= r;
+
+            let f;
+            if (r > lo) {
+              if (this.flatForce) {
+                f = attract[idx];
+              } else {
+                const numer = 2 * Math.abs(r - 0.5 * (hi + lo));
+                const denom = hi - lo;
+                f = attract[idx] * (1 - numer / denom);
+              }
+            } else {
+              f = R_SMOOTH * lo * (1 / (lo + R_SMOOTH) - 1 / (r + R_SMOOTH));
+            }
+
+            ax += f * dx;
+            ay += f * dy;
           }
-        } else {
-          f = R_SMOOTH * lo * (1 / (lo + R_SMOOTH) - 1 / (r + R_SMOOTH));
         }
-
-        ax += f * dx;
-        ay += f * dy;
       }
 
       vx[i] += ax;
