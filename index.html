@@ -8,7 +8,7 @@
   </head>
   <body>
     <div class="app">
-      <header class="topbar">
+      <aside class="sidebar">
         <div class="brand">
           <svg class="logo" viewBox="0 0 5 5" aria-hidden="true">
             <rect x="1" y="0" width="1" height="1" />
@@ -17,56 +17,21 @@
             <rect x="1" y="2" width="1" height="1" />
             <rect x="2" y="2" width="1" height="1" />
           </svg>
-          <div>
+          <div class="brand-text">
             <h1>Game of Chaos</h1>
             <p class="tagline">元胞自动机沙盒</p>
           </div>
         </div>
 
-        <div class="mode-switch" role="group" aria-label="规则类型">
+        <nav class="mode-nav" role="group" aria-label="模式">
           <button id="mode-life" class="mode-btn is-active" type="button">生命游戏</button>
           <button id="mode-wuxing" class="mode-btn" type="button">五行生克</button>
           <button id="mode-async" class="mode-btn" type="button">异步因果</button>
           <button id="mode-infinite" class="mode-btn" type="button">无限生命</button>
           <button id="mode-particle" class="mode-btn" type="button">粒子生命</button>
-        </div>
+        </nav>
 
-        <div class="rule-bar" id="rule-life">
-          <label class="field">
-            <span>规则</span>
-            <input id="rule-input" class="mono" type="text" value="B3/S23" spellcheck="false" autocomplete="off" />
-          </label>
-          <select id="rule-preset" class="mono">
-            <option value="">预设规则…</option>
-          </select>
-          <button id="rule-apply" class="btn" type="button">应用</button>
-          <span id="rule-error" class="rule-error"></span>
-        </div>
-
-        <div class="rule-bar" id="rule-wuxing" hidden>
-          <span id="wuxing-readout" class="readout mono">生长 ≥ 3 · 克制 ≥ 3</span>
-        </div>
-
-        <a class="doc-link" href="docs/light-cone.html" target="_blank" rel="noopener" title="光锥交互演示（新标签页打开）">
-          光锥演示 <span aria-hidden="true">↗</span>
-        </a>
-      </header>
-
-      <main>
-        <section class="stage" id="stage">
-          <canvas id="board"></canvas>
-          <div class="stage-hint">
-            左键绘制 · 右键擦除 · 滚轮缩放 · 中键拖动平移 · 空格播放/暂停
-          </div>
-          <div class="zoom-bar">
-            <button id="zoom-out" type="button" title="缩小">−</button>
-            <span id="zoom-level" class="mono">100%</span>
-            <button id="zoom-in" type="button" title="放大">+</button>
-            <button id="zoom-fit" type="button" title="适应窗口">适应</button>
-          </div>
-        </section>
-
-        <aside class="panel">
+        <div class="side-scroll">
           <div class="transport">
             <button id="btn-play" class="btn primary" type="button">▶ 播放</button>
             <button id="btn-step" class="btn" type="button">单步</button>
@@ -89,6 +54,23 @@
             <canvas id="flow-chart" class="spark" hidden></canvas>
           </section>
 
+          <section class="block" id="rule-life">
+            <h2>规则</h2>
+            <div class="rule-row">
+              <input id="rule-input" class="mono" type="text" value="B3/S23" spellcheck="false" autocomplete="off" />
+              <button id="rule-apply" class="btn" type="button">应用</button>
+            </div>
+            <select id="rule-preset" class="mono">
+              <option value="">预设规则…</option>
+            </select>
+            <span id="rule-error" class="rule-error"></span>
+          </section>
+
+          <section class="block" id="rule-wuxing" hidden>
+            <h2>规则</h2>
+            <span id="wuxing-readout" class="readout mono">生长 ≥ 3 · 克制 ≥ 3</span>
+          </section>
+
           <section class="block" id="ring-block" hidden>
             <h2>生克流向</h2>
             <canvas id="ring" class="ring"></canvas>
@@ -107,11 +89,16 @@
               <span id="particle-count-val" class="value mono">400</span>
             </div>
             <label class="check"><input id="opt-particle-wrap" type="checkbox" /> 边界环绕</label>
-            <label class="check"><input id="opt-trace" type="checkbox" checked /> 描边：显示速度方向</label>
+            <label class="check"><input id="opt-trace" type="checkbox" /> 描边：显示速度方向</label>
+
+            <h3 class="sub">作用力矩阵</h3>
+            <canvas id="force-matrix" class="matrix"></canvas>
+            <p class="hint" id="matrix-readout">行 = 受力方，列 = 作用方。青吸引、洋红排斥。</p>
+            <div class="presets">
+              <button id="matrix-random" class="preset-btn" type="button">重掷矩阵</button>
+            </div>
             <p class="hint">
-              离格系统：没有格子，也没有「代」，每帧算粒子两两之间的力。<br />
-              左键点画布撒一把粒子，<kbd>R</kbd> 重新随机。<br />
-              规则与参数取自 HackerPoet 的 Particle-Life。
+              左键 +0.01、右键 −0.01、滚轮微调；改完立刻生效。
             </p>
           </section>
 
@@ -199,15 +186,12 @@
             <label class="check"><input id="opt-wrap" type="checkbox" checked /> 边界环绕（环面）</label>
             <label class="check"><input id="opt-grid" type="checkbox" checked /> 显示网格</label>
             <label class="check" id="opt-age-row"><input id="opt-age" type="checkbox" checked /> 按存活时长着色</label>
-            <div class="row">
-              <select id="board-size">
-                <option value="120x80">120 × 80</option>
-                <option value="160x100" selected>160 × 100</option>
-                <option value="240x150">240 × 150</option>
-                <option value="320x200">320 × 200</option>
-              </select>
-              <span class="value mono">格子尺寸</span>
-            </div>
+            <select id="board-size">
+              <option value="120x80">120 × 80</option>
+              <option value="160x100" selected>160 × 100</option>
+              <option value="240x150">240 × 150</option>
+              <option value="320x200">320 × 200</option>
+            </select>
           </section>
 
           <section class="block" id="patterns-block">
@@ -215,7 +199,26 @@
             <div id="patterns" class="patterns"></div>
             <p class="hint">选中后点击画布放置，<kbd>R</kbd> 旋转，<kbd>Esc</kbd> 取消。</p>
           </section>
-        </aside>
+
+          <a class="doc-link" href="docs/light-cone.html" target="_blank" rel="noopener" title="光锥交互演示（新标签页打开）">
+            光锥演示 <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+      </aside>
+
+      <main>
+        <section class="stage" id="stage">
+          <canvas id="board"></canvas>
+          <div class="stage-hint">
+            左键绘制 · 右键擦除 · 滚轮缩放 · 中键拖动平移 · 空格播放/暂停
+          </div>
+          <div class="zoom-bar">
+            <button id="zoom-out" type="button" title="缩小">−</button>
+            <span id="zoom-level" class="mono">100%</span>
+            <button id="zoom-in" type="button" title="放大">+</button>
+            <button id="zoom-fit" type="button" title="适应窗口">适应</button>
+          </div>
+        </section>
       </main>
     </div>
 

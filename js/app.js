@@ -16,6 +16,7 @@ import { SparseWorld } from './core/sparse-world.js';
 import { SparseLifeEngine } from './core/sparse-life.js';
 import { ParticleLifeEngine, PARTICLE_PRESETS } from './core/particle-life.js';
 import { Renderer } from './ui/renderer.js';
+import { ForceMatrix } from './ui/force-matrix.js';
 import { PATTERNS, rotatePattern } from './ui/patterns.js';
 import { drawRing } from './ui/ring.js';
 import { drawSeries } from './ui/timeseries.js';
@@ -101,6 +102,33 @@ let board = state.mode === 'infinite' ? sparseWorld : denseBoard;
 
 const renderer = new Renderer($('board'));
 const canvas = $('board');
+
+/* ---------- 作用力矩阵面板 ---------- */
+
+const forceMatrix = new ForceMatrix($('force-matrix'), onMatrixChange, onMatrixHover);
+
+function onMatrixChange(i, j, delta) {
+  if (typeof engine.getAttract !== 'function') return;
+  engine.setAttract(i, j, engine.getAttract(i, j) + delta);
+  forceMatrix.draw();
+  updateMatrixReadout(i, j);
+}
+
+function onMatrixHover(i, j) {
+  updateMatrixReadout(i, j);
+}
+
+function updateMatrixReadout(i, j) {
+  const el = $('matrix-readout');
+  if (i === null || j === null || typeof engine.getAttract !== 'function') {
+    el.textContent = '行 = 受力方，列 = 作用方。青吸引、洋红排斥。';
+    return;
+  }
+  const value = engine.getAttract(i, j);
+  el.textContent = `类型 ${i} 受到类型 ${j}：${value >= 0 ? '+' : ''}${value.toFixed(3)}（${
+    value >= 0 ? '吸引' : '排斥'
+  }）`;
+}
 
 /** 生命游戏规则，切到五行模式时保留着，切回来不用重设 */
 let lifeRule = safeParseRule(state.rule);
@@ -420,6 +448,7 @@ function seedCausal() {
 function randomizeBoard() {
   if (state.mode === 'particle') {
     engine.reset();
+    forceMatrix.setEngine(engine);
   } else if (state.mode === 'wuxing') {
     seedWorld(board, state.density);
   } else if (board.isSparse) {
@@ -464,7 +493,7 @@ function applyModeUI() {
 
   // 无限世界没有边界也没有固定尺寸；粒子模式另有自己的边界开关
   $('opt-wrap').closest('label').hidden = infinite || particle;
-  $('board-size').closest('.row').hidden = infinite || particle;
+  $('board-size').hidden = infinite || particle;
   const densityRow = $('density').closest('.row');
   if (densityRow) densityRow.hidden = particle;
 
@@ -496,6 +525,11 @@ function applyModeUI() {
   renderParticlePresets();
   syncTriggerButtons();
   syncSeedButtons();
+
+  if (particle) {
+    forceMatrix.setEngine(engine);
+    updateMatrixReadout(null, null);
+  }
 }
 
 /** 速度滑杆在异步模式下是倍速，粒子模式是每帧步数，其余模式是「代/秒」 */
@@ -1053,6 +1087,12 @@ function bindControls() {
     render();
   });
 
+  $('matrix-random').addEventListener('click', () => {
+    if (typeof engine.randomizeAttract !== 'function') return;
+    engine.randomizeAttract();
+    forceMatrix.draw();
+  });
+
   const wrap = $('opt-wrap');
   wrap.checked = state.wrap;
   wrap.addEventListener('change', () => {
@@ -1171,11 +1211,13 @@ function boot() {
     if (state.mode !== 'particle') renderer.clampCamera(board);
     render();
     drawCharts();
+    forceMatrix.draw();
   });
   resizeObserver.observe($('stage'));
   resizeObserver.observe($('spark'));
   resizeObserver.observe($('flow-chart'));
   resizeObserver.observe($('ring'));
+  resizeObserver.observe($('force-matrix'));
 
   document.addEventListener('keydown', onKeydown);
 

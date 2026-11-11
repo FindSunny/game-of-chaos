@@ -161,4 +161,40 @@ test('类型颜色数量与类型数一致', () => {
   assert.equal(e.nTypes, 12);
 });
 
+console.log('\n作用力矩阵编辑');
+
+test('setAttract 会夹在 ±0.25 之内', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Balanced' });
+  e.setAttract(0, 1, 5);
+  assert.equal(e.getAttract(0, 1), 0.25);
+  e.setAttract(0, 1, -5);
+  assert.equal(e.getAttract(0, 1), -0.25);
+  e.setAttract(0, 1, 0.03);
+  // 存的是 Float32Array，0.03 会有一点点精度损失
+  assert.ok(Math.abs(e.getAttract(0, 1) - 0.03) < 1e-6);
+});
+
+test('单格修改只动那一格，不影响对称的半径', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Balanced' });
+  const beforeMin = e.minR[0 * e.nTypes + 1];
+  const beforeOther = e.getAttract(1, 0);
+  e.setAttract(0, 1, 0.08);
+  assert.equal(e.minR[0 * e.nTypes + 1], beforeMin);
+  assert.equal(e.getAttract(1, 0), beforeOther, '反向那一格是独立的');
+});
+
+test('重掷矩阵保留粒子位置，且对角线仍是排斥', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Gliders', count: 120 });
+  const x0 = Array.from(e.x).slice(0, 5);
+  const before = e.getAttract(0, e.nTypes > 1 ? 1 : 0);
+
+  e.randomizeAttract();
+
+  assert.deepEqual(Array.from(e.x).slice(0, 5), x0, '粒子不该动');
+  for (let i = 0; i < e.nTypes; i++) {
+    assert.ok(e.getAttract(i, i) < 0, '对角线应保持排斥');
+  }
+  assert.notEqual(e.getAttract(0, e.nTypes > 1 ? 1 : 0), before);
+});
+
 console.log(`\n全部通过：${passed} 项\n`);

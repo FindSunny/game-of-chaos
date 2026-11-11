@@ -138,6 +138,42 @@ export class ParticleLifeEngine {
     this.colors = Array.from({ length: n }, (_, i) => hsvToHex(i / n, 1, (i % 2) * 0.5 + 0.5));
   }
 
+  /**
+   * 只重掷吸引力矩阵，粒子位置/类型不变。
+   * 用途：调矩阵时保留当前这团粒子，立刻看到新规则的效果。
+   */
+  randomizeAttract() {
+    const n = this.nTypes;
+    const preset = PARTICLE_PRESETS[this.presetName] || PARTICLE_PRESETS.Balanced;
+    const [attractMean, attractStd] = preset.params;
+    const normal = (mean, std) => {
+      const u = Math.max(this.rng(), 1e-9);
+      const v = this.rng();
+      return mean + std * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    };
+
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const idx = i * n + j;
+        this.attract[idx] =
+          i === j ? -Math.abs(normal(attractMean, attractStd)) : normal(attractMean, attractStd);
+      }
+    }
+  }
+
+  /** 单格修改吸引力；夹在 ±0.25，避免手滑把粒子甩飞 */
+  setAttract(i, j, value) {
+    const n = this.nTypes;
+    if (i < 0 || j < 0 || i >= n || j >= n) return;
+    const clamped = Math.max(-0.25, Math.min(0.25, value));
+    this.attract[i * n + j] = clamped;
+    return clamped;
+  }
+
+  getAttract(i, j) {
+    return this.attract[i * this.nTypes + j];
+  }
+
   resetCounters() {
     this.steps = 0;
     this.stats = { population: this.count, types: this.nTypes, births: 0, deaths: 0 };
