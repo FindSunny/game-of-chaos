@@ -58,6 +58,14 @@ function compile(gl, type, source) {
 }
 
 function parseColor(str) {
+  if (typeof str === 'string' && str[0] === '#') {
+    const hex = str.slice(1);
+    const full = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
+    const v = parseInt(full, 16);
+    if (!Number.isNaN(v)) {
+      return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255];
+    }
+  }
   const m = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/.exec(str || '');
   if (!m) return [1, 1, 1];
   return [Number(m[1]) / 255, Number(m[2]) / 255, Number(m[3]) / 255];

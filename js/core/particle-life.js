@@ -39,40 +39,39 @@ function mulberry32(seed) {
 }
 
 /**
- * 类型配色：取自 particle-life-app 的 Natural Rainbow 调色板（256 色首尾衔接）。
- * 比 HSV 均分好看，也不会出现「一亮一暗」交替的跳色。
- * 用法与 InterpolatingPalette 一致：index = 256 * type / nTypes，再相邻插值。
+ * 类型配色：直接采用 sandbox-science.com/particle-life 的十色方案
+ * （Tailwind 500 色阶，红→橙→黄→绿→青→蓝→靛→紫→粉色），
+ * 明度一致、相邻色相拉得开，深色背景上辨识度最好。
+ * 类型数超过十个时，再接一组补充色，避免重复。
  */
-const NATURAL_RAINBOW = 'e8002e eb0029 ed0024 f0001f f2001c f20017 f50012 f7000d fa000a fc0005 ff0000 ff0500 ff0a00 ff0f00 ff1200 ff1700 ff1c00 ff2100 ff2600 ff2b00 ff3000 ff3600 ff3b00 ff4000 ff4500 ff4a00 ff4f00 ff5400 ff5700 ff5c00 ff6100 ff6600 ff6900 ff6b00 ff6e00 ff7000 ff7300 ff7500 ff7800 ff7800 ff7d00 ff7d00 ff8200 ff8200 ff8700 ff8700 ff8a00 ff8c00 ff8f00 ff9100 ff9400 ff9600 ff9900 ff9c00 ff9e00 ffa100 ffa300 ffa600 ffa800 ffab00 ffab00 ffb000 ffb000 ffb500 ffb500 ffba00 ffba00 ffbd00 ffbf00 ffc200 ffc400 ffc700 ffc900 ffcc00 ffcf00 ffd100 ffd400 ffd600 ffd900 ffdb00 ffde00 ffde00 ffe300 ffe300 ffe800 ffe800 ffed00 ffed00 fff000 fff200 fff500 fff700 fffa00 fffc00 ffff00 fafc00 f5fa00 f0f700 ebf500 e6f200 e3f000 deed00 d9eb00 d4e800 cfe600 c9e300 c4e000 bfde00 badb00 b5d900 b0d600 abd600 a6d100 a3d100 9ecc00 99cc00 91c900 8ac700 82c400 7ac200 73bf00 6ebd00 66ba00 5eb800 57b500 4fb200 47b000 40ad00 3bab00 33ab00 2ba600 24a600 1ca300 17a100 0d9e00 089c00 009900 00990a 009912 00991c 009926 009930 00993b 009945 00994c 009957 009961 00996b 009973 00997d 009987 009991 00999c 0099a3 0099ad 0099b8 0099c2 0099cc 0096cc 0094cc 0091cc 008fcc 008ccc 008acc 0087cc 0087cc 0082cc 0082cc 007dcc 007dcc 0078cc 0078cc 0075cc 0073cc 0070cc 006ecc 006bcc 0069cc 0066cc 0061c9 005cc7 0059c4 0054c2 004fbf 004abd 0045ba 0040b8 003db5 0038b2 0033b0 002ead 0029ab 0026a8 0021a6 001ca3 0017a1 00129e 000d9c 000a99 000596 000094 050094 0a0094 0d0096 120096 170096 1c0096 210096 260096 290096 2e0096 330096 380096 3d0096 420099 450099 4a0099 4f0099 540099 590099 5e0099 610099 660099 6b0096 700094 750091 7a008f 80008c 85008c 8a0087 8f0087 940085 990082 9c0080 a1007d a6007a ab0078 b00075 b50073 ba0070 bf006e c2006b c70069 cc0066 cf0063 d1005e d40059 d60054 d90052 d9004c db0047 de0042 e00040 e3003b e30036 e80030'.split(' ').map((h) => [
-  parseInt(h.slice(0, 2), 16),
-  parseInt(h.slice(2, 4), 16),
-  parseInt(h.slice(4, 6), 16),
-]);
+const SITE_COLORS = [
+  '#EF4444', // red
+  '#F97316', // orange
+  '#EAB308', // yellow
+  '#22C55E', // green
+  '#14B8A6', // teal
+  '#06B6D4', // cyan
+  '#3B82F6', // blue
+  '#6366F1', // indigo
+  '#A855F7', // purple
+  '#EC4899', // pink
+];
 
-/**
- * 提亮分两步：先往白色方向混，再把每个通道推离均值一点。
- * 只混白会发灰（pastel），只提亮不补饱和会显得脏；两步一起才是「亮而有色」。
- */
-const BRIGHTEN = 0.46;
-const SATURATE = 1.28;
+const EXTRA_COLORS = [
+  '#84CC16', // lime
+  '#0EA5E9', // sky
+  '#8B5CF6', // violet
+  '#D946EF', // fuchsia
+  '#F43F5E', // rose
+  '#F59E0B', // amber
+];
 
 function paletteColor(type, nTypes) {
   const n = Math.max(1, nTypes);
-  const exact = (NATURAL_RAINBOW.length * type) / n;
-  const lo = Math.min(NATURAL_RAINBOW.length - 1, Math.floor(exact));
-  const hi = Math.min(NATURAL_RAINBOW.length - 1, Math.ceil(exact));
-  const f = exact - lo;
-  const a = NATURAL_RAINBOW[lo];
-  const b = NATURAL_RAINBOW[hi];
-  const c = [0, 1, 2].map((k) => {
-    const base = a[k] + (b[k] - a[k]) * f;
-    return base + (255 - base) * BRIGHTEN;
-  });
-  const mean = (c[0] + c[1] + c[2]) / 3;
-  const out = c.map((v) => Math.max(0, Math.min(255, Math.round(mean + (v - mean) * SATURATE))));
-  return `rgb(${out[0]}, ${out[1]}, ${out[2]})`;
+  const i = ((type % n) + n) % n;
+  if (i < SITE_COLORS.length) return SITE_COLORS[i];
+  return EXTRA_COLORS[(i - SITE_COLORS.length) % EXTRA_COLORS.length];
 }
-
 export class ParticleLifeEngine {
   /**
    * @param {number} width 世界宽（世界单位）
