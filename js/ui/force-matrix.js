@@ -11,7 +11,7 @@
  */
 
 const MAX_ABS = 0.12; // 颜色映射的满量程
-const LABEL = 18; // 行列色标带宽度（CSS 像素）
+const LABEL = 22; // 行列色标带宽度（CSS 像素）
 
 /** -MAX_ABS..MAX_ABS 映射到 青 ↔ 黑 ↔ 洋红 */
 function colorFor(value) {
@@ -135,43 +135,31 @@ export class ForceMatrix {
       }
     }
 
-    // 顶部色标：列 = 作用方
+    // 顶部色标：列 = 作用方，用圆点表示
+    const dotR = Math.max(2.5, Math.min(6, cell * 0.22));
     for (let j = 0; j < n; j++) {
+      ctx.beginPath();
+      ctx.arc(ox + j * cell + cell / 2, oy - LABEL / 2 - 1, dotR, 0, Math.PI * 2);
       ctx.fillStyle = colors[j] || '#35e0c8';
-      ctx.fillRect(ox + j * cell + 1, 2, Math.max(1, cell - 2), 7);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(5, 8, 12, 0.8)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
     }
 
     // 左侧色标：行 = 受力方
     for (let i = 0; i < n; i++) {
+      ctx.beginPath();
+      ctx.arc(ox - LABEL / 2 - 1, oy + i * cell + cell / 2, dotR, 0, Math.PI * 2);
       ctx.fillStyle = colors[i] || '#35e0c8';
-      ctx.fillRect(2, oy + i * cell + 1, 7, Math.max(1, cell - 2));
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(5, 8, 12, 0.8)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
     }
 
-    // 行列序号：格子够大才画，否则只靠颜色
-    if (cell >= 16) {
-      ctx.fillStyle = 'rgba(226, 232, 240, 0.75)';
-      ctx.font = '10px ui-monospace, monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      for (let j = 0; j < n; j++) {
-        ctx.fillText(String(j), ox + j * cell + cell / 2, 14);
-      }
-      for (let i = 0; i < n; i++) {
-        ctx.fillText(String(i), 14, oy + i * cell + cell / 2);
-      }
-    }
-
-    // 轴名：列在顶部、行在左侧，各留一个角落文字
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.75)';
-    ctx.font = '9px -apple-system, "PingFang SC", sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText('作用方 →', w - 4, 10);
-    ctx.save();
-    ctx.translate(10, h - 4);
-    ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'right';
-    ctx.fillText('受力方 →', 0, 0);
-    ctx.restore();
+    // 轴名不画在画布里：色标带太窄，文字会压到圆点上。
+    // 行列含义交给下方说明文字（行 = 受力方，列 = 作用方）。
 
     // 悬停高亮
     if (this.hover.i !== null) {
