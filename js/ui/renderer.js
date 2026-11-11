@@ -167,10 +167,12 @@ export class Renderer {
     ctx.fillStyle = '#05080c';
     ctx.fillRect(0, 0, cw, ch);
 
-    // 世界边界
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(ox + 0.5, oy + 0.5, engine.width * zoom - 1, engine.height * zoom - 1);
+    // 世界边界（无限世界没有边界，不画框）
+    if (!engine.infinite) {
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(ox + 0.5, oy + 0.5, engine.width * zoom - 1, engine.height * zoom - 1);
+    }
 
     const trace = Boolean(opts.trace);
     // 描边模式下圆点画小一点，让速度线成为主体

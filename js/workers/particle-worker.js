@@ -31,6 +31,8 @@ function snapshot() {
     colors: engine.colors,
     width: engine.width,
     height: engine.height,
+    infinite: engine.infinite,
+    wrap: engine.wrap,
     steps: engine.steps,
     matrix: Array.from(engine.attract),
   };
@@ -49,6 +51,7 @@ self.onmessage = (event) => {
         preset: msg.preset,
         count: msg.count,
         wrap: msg.wrap,
+        infinite: msg.infinite,
         seed: msg.seed,
       });
       allocOutputs();

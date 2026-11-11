@@ -58,6 +58,7 @@ const DEFAULTS = {
   particlePreset: 'Gliders',
   particleCount: 400,
   particleWrap: true,
+  particleInfinite: false, // 无限画布：没有边界、没有环绕
   particleTrace: false, // 描边（速度箭头）默认关，先只看圆点
 };
 
@@ -165,6 +166,7 @@ function createEngine() {
       preset: state.particlePreset,
       count: state.particleCount,
       wrap: state.particleWrap,
+      infinite: state.particleInfinite,
     };
     // 物理放到 worker 里跑，主线程只管渲染；拿不到 worker 就退回同线程
     if (canUseParticleWorker()) {
@@ -524,6 +526,11 @@ function applyModeUI() {
   // 无限世界没有边界也没有固定尺寸；粒子模式另有自己的边界开关
   $('opt-wrap').closest('label').hidden = infinite || particle;
   $('board-size').hidden = infinite || particle;
+  // 无限画布没有「环绕」这回事
+  if (particle) {
+    $('opt-particle-infinite').checked = state.particleInfinite;
+    $('opt-particle-wrap').closest('label').hidden = state.particleInfinite;
+  }
   const densityRow = $('density').closest('.row');
   if (densityRow) densityRow.hidden = particle;
 
@@ -1110,6 +1117,18 @@ function bindControls() {
       engine.setOptions({ wrap: state.particleWrap });
     }
     saveSettings();
+  });
+
+  const particleInfinite = $('opt-particle-infinite');
+  particleInfinite.checked = state.particleInfinite;
+  particleInfinite.addEventListener('change', () => {
+    state.particleInfinite = particleInfinite.checked;
+    if (state.mode === 'particle' && engine.setOptions) {
+      engine.setOptions({ infinite: state.particleInfinite });
+    }
+    applyModeUI();
+    saveSettings();
+    render();
   });
 
   const trace = $('opt-trace');

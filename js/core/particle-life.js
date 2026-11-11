@@ -72,6 +72,14 @@ function paletteColor(type, nTypes) {
   if (i < SITE_COLORS.length) return SITE_COLORS[i];
   return EXTRA_COLORS[(i - SITE_COLORS.length) % EXTRA_COLORS.length];
 }
+
+/**
+ * 无限世界的网格键：把二维格子坐标压成一个整数。
+ * 用字符串键（"x,y"）会慢一个数量级，这里按 32768 的偏移打包。
+ */
+function cellKey(cx, cy) {
+  return (cx + 32768) * 65536 + (cy + 32768);
+}
 export class ParticleLifeEngine {
   /**
    * @param {number} width 世界宽（世界单位）
@@ -82,6 +90,8 @@ export class ParticleLifeEngine {
     this.width = width;
     this.height = height;
     this.wrap = options.wrap ?? false;
+    // 无限世界：没有墙、没有环绕，坐标可以为负，相机可以一直往外拖
+    this.infinite = options.infinite ?? false;
     this.presetName = options.preset ?? 'Balanced';
     this.seedValue = options.seed ?? 20261110;
     this.countOverride = options.count ?? null;
@@ -201,6 +211,24 @@ export class ParticleLifeEngine {
     this.stats = { population: this.count, types: this.nTypes, births: 0, deaths: 0 };
   }
 
+  /** 把整团粒子平移到世界中心（切到无限世界时用，保证一上来就在视野里） */
+  centerParticles() {
+    const n = this.count;
+    if (!n) return;
+    let sx = 0;
+    let sy = 0;
+    for (let i = 0; i < n; i++) {
+      sx += this.x[i];
+      sy += this.y[i];
+    }
+    const dx = this.width / 2 - sx / n;
+    const dy = this.height / 2 - sy / n;
+    for (let i = 0; i < n; i++) {
+      this.x[i] += dx;
+      this.y[i] += dy;
+    }
+  }
+
   get generation() {
     return this.steps;
   }
@@ -208,6 +236,12 @@ export class ParticleLifeEngine {
   setOptions(options) {
     if (options.preset !== undefined) this.reset(options.preset);
     if (options.wrap !== undefined) this.wrap = options.wrap;
+    if (options.infinite !== undefined && options.infinite !== this.infinite) {
+      this.infinite = options.infinite;
+      this.hashGrid = null;
+      // 切到无限世界时把粒子挪到原点附近，否则可能落在很远的负坐标上
+      if (this.infinite) this.centerParticles();
+    }
     if (options.count !== undefined) {
       this.countOverride = options.count;
       this.reset();
@@ -246,10 +280,32 @@ export class ParticleLifeEngine {
   /**
    * 空间网格：把粒子按格子分桶，只跟邻近 9 个桶比。
    * 格子边长取全局最大作用半径，保证不会漏掉任何能产生力的粒子对。
+   *
+   * 无限世界没有行列上限，改用「格子坐标 → 桶」的哈希表，
+   * 键是二维坐标压成的整数，避免字符串键的开销。
    */
   buildGrid() {
     const { x, y, count: n } = this;
     const cell = this.cellSize;
+
+    if (this.infinite) {
+      const map = this.hashGrid || (this.hashGrid = new Map());
+      // 粒子飘远之后旧格子会一直留着空桶，超过阈值就整体重建
+      if (map.size > 40000) map.clear();
+      else for (const bucket of map.values()) bucket.length = 0;
+
+      for (let i = 0; i < n; i++) {
+        const key = cellKey(Math.floor(x[i] / cell), Math.floor(y[i] / cell));
+        let bucket = map.get(key);
+        if (!bucket) {
+          bucket = [];
+          map.set(key, bucket);
+        }
+        bucket.push(i);
+      }
+      return;
+    }
+
     const cols = Math.max(1, Math.ceil(this.width / cell));
     const rows = Math.max(1, Math.ceil(this.height / cell));
 
@@ -279,11 +335,13 @@ export class ParticleLifeEngine {
     const width = this.width;
     const height = this.height;
     const wrap = this.wrap;
+    const infinite = this.infinite;
 
     this.buildGrid();
     const cols = this.gridCols;
     const rows = this.gridRows;
     const buckets = this.buckets;
+    const hash = this.infinite ? this.hashGrid : null;
     const reach = this.cellSize;
 
     for (let i = 0; i < n; i++) {
@@ -296,29 +354,36 @@ export class ParticleLifeEngine {
       // 只扫自己所在格子和周围 8 格
       let gx = Math.floor(px / reach);
       let gy = Math.floor(py / reach);
-      if (gx < 0) gx = 0;
-      else if (gx >= cols) gx = cols - 1;
-      if (gy < 0) gy = 0;
-      else if (gy >= rows) gy = rows - 1;
+      if (!infinite) {
+        if (gx < 0) gx = 0;
+        else if (gx >= cols) gx = cols - 1;
+        if (gy < 0) gy = 0;
+        else if (gy >= rows) gy = rows - 1;
+      }
 
       for (let oy = -1; oy <= 1; oy++) {
         let cy = gy + oy;
-        if (wrap) cy = (cy + rows) % rows;
-        else if (cy < 0 || cy >= rows) continue;
+        if (!infinite) {
+          if (wrap) cy = (cy + rows) % rows;
+          else if (cy < 0 || cy >= rows) continue;
+        }
 
         for (let ox = -1; ox <= 1; ox++) {
           let cx = gx + ox;
-          if (wrap) cx = (cx + cols) % cols;
-          else if (cx < 0 || cx >= cols) continue;
+          if (!infinite) {
+            if (wrap) cx = (cx + cols) % cols;
+            else if (cx < 0 || cx >= cols) continue;
+          }
 
-          const bucket = buckets[cy * cols + cx];
+          const bucket = infinite ? hash.get(cellKey(cx, cy)) : buckets[cy * cols + cx];
+          if (!bucket) continue;
           for (let b = 0; b < bucket.length; b++) {
             const j = bucket[b];
             if (i === j) continue;
             let dx = x[j] - px;
             let dy = y[j] - py;
 
-            if (wrap) {
+            if (wrap && !infinite) {
               if (dx > width * 0.5) dx -= width;
               else if (dx < -width * 0.5) dx += width;
               if (dy > height * 0.5) dy -= height;
@@ -365,7 +430,9 @@ export class ParticleLifeEngine {
       vx[i] *= damp;
       vy[i] *= damp;
 
-      if (wrap) {
+      if (infinite) {
+        // 无限世界：没有墙也没有环绕，粒子想去哪去哪
+      } else if (wrap) {
         if (px < 0) px += width;
         else if (px >= width) px -= width;
         if (py < 0) py += height;

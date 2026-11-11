@@ -45,6 +45,7 @@ export class ParticleWorkerHost {
       preset: options.preset,
       count: options.count,
       wrap: options.wrap,
+      infinite: options.infinite,
       seed: options.seed,
     });
   }
@@ -61,6 +62,7 @@ export class ParticleWorkerHost {
         this.colors = msg.colors;
         this.width = msg.width;
         this.height = msg.height;
+        this.infinite = Boolean(msg.infinite);
         this.steps = msg.steps;
         this.matrix = new Float32Array(msg.matrix);
         this.stats.population = msg.count;

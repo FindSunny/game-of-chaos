@@ -197,4 +197,63 @@ test('重掷矩阵保留粒子位置，且对角线仍是排斥', () => {
   assert.notEqual(e.getAttract(0, e.nTypes > 1 ? 1 : 0), before);
 });
 
+console.log('\n无限画布');
+
+test('无限世界不反弹：越过原点继续走', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Gliders', count: 1, infinite: true, seed: 7 });
+  e.x[0] = 20;
+  e.y[0] = 150;
+  e.vx[0] = -5;
+  e.vy[0] = 0;
+  e.step();
+  assert.ok(e.x[0] < 20, `应继续往左，实际 x = ${e.x[0]}`);
+});
+
+test('有限世界会反弹：同一初始条件撞墙回头', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Gliders', count: 1, infinite: false, seed: 7 });
+  e.x[0] = 6;
+  e.y[0] = 150;
+  e.vx[0] = -5;
+  e.vy[0] = 0;
+  e.step();
+  assert.ok(e.x[0] >= 10, `应被墙弹回，实际 x = ${e.x[0]}`);
+});
+
+test('无限世界：负坐标的邻居照样能互相作用', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Balanced', count: 2, infinite: true, seed: 3 });
+  e.x[0] = -200;
+  e.y[0] = -200;
+  e.x[1] = -190;
+  e.y[1] = -200;
+  e.vx[0] = 0;
+  e.vy[0] = 0;
+  e.vx[1] = 0;
+  e.vy[1] = 0;
+  e.type[0] = 0;
+  e.type[1] = 1;
+
+  // 让这一对互相吸引，且作用半径为 100 > 间距 10
+  const idx = 0 * e.nTypes + 1;
+  const mirror = 1 * e.nTypes + 0;
+  e.minR[idx] = e.minR[mirror] = 5;
+  e.maxR[idx] = e.maxR[mirror] = 100;
+  e.setAttract(0, 1, 0.2);
+  e.setAttract(1, 0, 0.2);
+
+  e.step();
+  assert.ok(e.vx[0] > 0, `粒子 0 应被吸向右，实际 ${e.vx[0]}`);
+  assert.ok(e.vx[1] < 0, `粒子 1 应被吸向左，实际 ${e.vx[1]}`);
+});
+
+test('切到无限世界会把粒子团挪回视野中心', () => {
+  const e = new ParticleLifeEngine(400, 300, { preset: 'Gliders', count: 50 });
+  for (let i = 0; i < e.count; i++) e.x[i] -= 5000;
+  e.setOptions({ infinite: true });
+
+  let sum = 0;
+  for (let i = 0; i < e.count; i++) sum += e.x[i];
+  assert.ok(Math.abs(sum / e.count - 200) < 1, `质心应回到 200，实际 ${sum / e.count}`);
+  assert.equal(e.infinite, true);
+});
+
 console.log(`\n全部通过：${passed} 项\n`);
