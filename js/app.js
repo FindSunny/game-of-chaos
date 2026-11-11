@@ -100,7 +100,7 @@ const denseBoard = new Board(state.width, state.height, state.wrap);
 const sparseWorld = new SparseWorld();
 let board = state.mode === 'infinite' ? sparseWorld : denseBoard;
 
-const renderer = new Renderer($('board'));
+const renderer = new Renderer($('board'), $('particles'));
 const canvas = $('board');
 
 /* ---------- 作用力矩阵面板 ---------- */
@@ -253,7 +253,7 @@ function render() {
   if (state.mode === 'particle') {
     renderer.drawParticles(engine, {
       showGrid: false,
-      radius: 5,
+      radius: 3,
       hover: ui.hover,
       trace: state.particleTrace,
     });
@@ -496,6 +496,7 @@ function applyModeUI() {
 
   $('patterns-block').hidden = wuxing || particle;
   $('opt-age-row').hidden = wuxing || asyncMode || infinite || particle;
+  $('particles').hidden = !particle;
 
   // 无限世界没有边界也没有固定尺寸；粒子模式另有自己的边界开关
   $('opt-wrap').closest('label').hidden = infinite || particle;

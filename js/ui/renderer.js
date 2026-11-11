@@ -12,16 +12,25 @@
 const DIM_COLOR = 'rgba(148, 163, 184, 0.18)';
 
 import { xOf, yOf } from '../core/sparse-world.js';
+import { ParticleGL } from './particle-gl.js';
 
 export class Renderer {
-  /** @param {HTMLCanvasElement} canvas */
-  constructor(canvas) {
+  /**
+   * @param {HTMLCanvasElement} canvas 主画布（网格、粒子背景、悬停框）
+   * @param {HTMLCanvasElement} [particleCanvas] 粒子专用的叠加画布（WebGL）
+   */
+  constructor(canvas, particleCanvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.cell = 6;
     this.ox = 0;
     this.oy = 0;
+
+    // 粒子用 WebGL 叠加层渲染；拿不到上下文时为 null，走 Canvas 2D 回退
+    this.particleGL = particleCanvas ? new ParticleGL(particleCanvas) : null;
+    // 便于排查「到底走的哪条路」，也方便自动化测试断言
+    document.body.dataset.particles = this.particleGL && this.particleGL.ok ? 'webgl' : 'canvas2d';
 
     /** 相机：zoom = 每格多少像素，ox/oy = 网格左上角在画布上的位置 */
     this.camera = { zoom: 8, ox: 0, oy: 0 };
@@ -168,15 +177,15 @@ export class Renderer {
     const r = Math.max(1, opts.radius * zoom * (trace ? 0.62 : 1));
     const colors = engine.colors;
 
-    // 普通模式：按类型攒成一个 Path2D，每类只 fill 一次。
-    // 1200 个粒子逐次 beginPath/arc/fill 是主要的渲染开销，合并后只有 6 次绘制调用。
-    if (!trace) {
+    // 粒子本体：有 WebGL 就交给 GPU（一次 draw call），否则退回 Canvas 2D
+    if (!trace && this.particleGL && this.particleGL.ok) {
+      this.particleGL.draw(engine, { ox, oy, zoom, radius: opts.radius });
+    } else if (!trace) {
+      // 2D 回退：按类型攒成 Path2D，每类只 fill 一次
       const paths = new Map();
       for (let i = 0; i < engine.count; i++) {
-        const wx = engine.x[i];
-        const wy = engine.y[i];
-        const px = ox + wx * zoom;
-        const py = oy + wy * zoom;
+        const px = ox + engine.x[i] * zoom;
+        const py = oy + engine.y[i] * zoom;
         if (px < -r || py < -r || px > cw + r || py > ch + r) continue;
 
         const type = engine.type[i];
@@ -185,7 +194,6 @@ export class Renderer {
           path = new Path2D();
           paths.set(type, path);
         }
-        // 每个圆要单独起一个子路径，否则会被连成一条线
         path.moveTo(px + r, py);
         path.arc(px, py, r, 0, Math.PI * 2);
       }
