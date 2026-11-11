@@ -44,6 +44,7 @@ const DEFAULTS = {
   wrap: true,
   grid: true,
   age: true,
+  canvasTone: 'graphite', // 画布底色：graphite | steel | abyss
   brush: 1,
   isolate: 0,
   // 异步模式
@@ -188,6 +189,17 @@ function canUseParticleWorker() {
 }
 
 let engine = createEngine();
+
+/** 画布底色：纯黑上小圆点会糊成一片，默认给个石墨灰 */
+const BG_TONES = {
+  graphite: { canvas: '#16202c', board: '#1b2735' },
+  steel: { canvas: '#1f2c3c', board: '#26374a' },
+  abyss: { canvas: '#05080c', board: '#0a1119' },
+};
+
+function applyCanvasTone() {
+  renderer.setTone(BG_TONES[state.canvasTone] || BG_TONES.graphite);
+}
 
 /** 运行期状态（不进 localStorage） */
 const ui = {
@@ -1186,6 +1198,15 @@ function bindControls() {
     drawCharts();
   });
 
+  const tone = $('canvas-tone');
+  tone.value = state.canvasTone;
+  tone.addEventListener('change', () => {
+    state.canvasTone = tone.value;
+    applyCanvasTone();
+    saveSettings();
+    render();
+  });
+
   $('zoom-in').addEventListener('click', () => zoomByButton(1.35));
   $('zoom-out').addEventListener('click', () => zoomByButton(1 / 1.35));
   $('zoom-fit').addEventListener('click', fitView);
@@ -1248,6 +1269,7 @@ function onKeydown(event) {
 
 function boot() {
   populateRulePresets();
+  applyCanvasTone();
   bindControls();
   renderPatternButtons();
   applyModeUI();

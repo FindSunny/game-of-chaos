@@ -27,6 +27,10 @@ export class Renderer {
     this.ox = 0;
     this.oy = 0;
 
+    // 画布底色：默认不是纯黑，纯黑上小圆点会糊成一片
+    this.canvasColor = '#16202c';
+    this.boardColor = '#1b2735';
+
     // 粒子用 WebGL 叠加层渲染；拿不到上下文时为 null，走 Canvas 2D 回退
     this.particleGL = particleCanvas ? new ParticleGL(particleCanvas) : null;
     // 便于排查「到底走的哪条路」，也方便自动化测试断言
@@ -108,6 +112,16 @@ export class Renderer {
    * 平移限位：至少把网格的一角留在画布里，避免拖丢
    * @param {import('../core/board.js').Board} board
    */
+  /**
+   * 切换画布底色。
+   * @param {{canvas: string, board: string}} tones
+   */
+  setTone(tones) {
+    if (!tones) return;
+    this.canvasColor = tones.canvas;
+    this.boardColor = tones.board;
+  }
+
   clampCamera(board) {
     if (board.isSparse) return; // 无限世界没有可夹的边界
     const cw = this.canvas.clientWidth;
@@ -164,7 +178,7 @@ export class Renderer {
     const { cell: zoom, ox, oy } = this;
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.fillStyle = '#05080c';
+    ctx.fillStyle = this.canvasColor;
     ctx.fillRect(0, 0, cw, ch);
 
     // 世界边界（无限世界没有边界，不画框）
@@ -296,11 +310,11 @@ export class Renderer {
     const { cell, ox, oy } = this;
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.fillStyle = '#05080c';
+    ctx.fillStyle = this.canvasColor;
     ctx.fillRect(0, 0, cw, ch);
 
     // 网格底板，比画布背景略亮，让边界看得见
-    ctx.fillStyle = '#0a1119';
+    ctx.fillStyle = this.boardColor;
     ctx.fillRect(ox, oy, cell * board.width, cell * board.height);
 
     const inset = cell >= 5 ? 1 : 0;
@@ -421,7 +435,7 @@ export class Renderer {
     const { cell, ox, oy } = this;
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.fillStyle = '#05080c';
+    ctx.fillStyle = this.canvasColor;
     ctx.fillRect(0, 0, cw, ch);
 
     const x0 = Math.floor(-ox / cell) - 1;
