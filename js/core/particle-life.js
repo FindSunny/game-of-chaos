@@ -16,15 +16,24 @@ const RADIUS = 5.0;
 const DIAMETER = RADIUS * 2;
 const R_SMOOTH = 2.0;
 
+/**
+ * 速度上限（世界单位/步）。
+ * 力是逐步累加的加速度，没有上限的话，密集团块里几个粒子被软核排斥同时推开，
+ * 速度能冲到 17（正常约 1.5），表现为「团块突然炸开」。
+ * 这里封顶，只削掉异常值，不改变正常动力学。
+ */
+const MAX_SPEED = 6;
+const MAX_SPEED2 = MAX_SPEED * MAX_SPEED;
+
 /** 与 fnky/particle-life 相同的预设，8 个参数依次是
  *  [attractMean, attractStd, minRLower, minRUpper, maxRLower, maxRUpper, friction, flatForce] */
 export const PARTICLE_PRESETS = {
-  Balanced: { types: 9, particles: 400, params: [-0.02, 0.06, 0, 20, 20, 70, 0.05, false] },
-  Chaos: { types: 6, particles: 400, params: [0.02, 0.04, 0, 30, 30, 100, 0.01, false] },
-  Diversity: { types: 12, particles: 400, params: [-0.01, 0.04, 0, 20, 10, 60, 0.05, true] },
-  Gliders: { types: 6, particles: 400, params: [0, 0.06, 0, 20, 10, 50, 0.1, true] },
-  Quiescence: { types: 6, particles: 300, params: [-0.02, 0.1, 10, 20, 20, 60, 0.2, false] },
-  'Small Clusters': { types: 6, particles: 600, params: [-0.005, 0.01, 10, 10, 20, 50, 0.01, false] },
+  Balanced: { label: '平衡', types: 9, particles: 400, params: [-0.02, 0.06, 0, 20, 20, 70, 0.05, false] },
+  Chaos: { label: '混沌', types: 6, particles: 400, params: [0.02, 0.04, 0, 30, 30, 100, 0.01, false] },
+  Diversity: { label: '多样', types: 12, particles: 400, params: [-0.01, 0.04, 0, 20, 10, 60, 0.05, true] },
+  Gliders: { label: '滑翔机', types: 6, particles: 400, params: [0, 0.06, 0, 20, 10, 50, 0.1, true] },
+  Quiescence: { label: '静止', types: 6, particles: 300, params: [-0.02, 0.1, 10, 20, 20, 60, 0.2, false] },
+  'Small Clusters': { label: '小团簇', types: 6, particles: 600, params: [-0.005, 0.01, 10, 10, 20, 50, 0.01, false] },
 };
 
 /** 可复现随机数 */
@@ -447,6 +456,15 @@ export class ParticleLifeEngine {
       let py = y[i] + vy[i];
       vx[i] *= damp;
       vy[i] *= damp;
+
+      // 速度封顶：团块被挤压时软核排斥会瞬间给出很大的加速度，
+      // 不截断就会把粒子以十几倍于正常的速度甩出去，看着像突然爆炸。
+      const speed2 = vx[i] * vx[i] + vy[i] * vy[i];
+      if (speed2 > MAX_SPEED2) {
+        const k = MAX_SPEED / Math.sqrt(speed2);
+        vx[i] *= k;
+        vy[i] *= k;
+      }
 
       if (infinite) {
         // 无限世界：没有墙也没有环绕，粒子想去哪去哪

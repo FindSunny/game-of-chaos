@@ -928,10 +928,11 @@ function syncSeedButtons() {
 function renderParticlePresets() {
   const select = $('particle-preset');
   if (select.options.length === 0) {
-    for (const name of Object.keys(PARTICLE_PRESETS)) {
+    for (const [name, preset] of Object.entries(PARTICLE_PRESETS)) {
       const option = document.createElement('option');
+      // value 用英文 key（存在 localStorage 里），显示用汉字
       option.value = name;
-      option.textContent = name;
+      option.textContent = preset.label ?? name;
       select.appendChild(option);
     }
   }
