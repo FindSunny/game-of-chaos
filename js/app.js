@@ -121,7 +121,7 @@ function onMatrixHover(i, j) {
 function updateMatrixReadout(i, j) {
   const el = $('matrix-readout');
   if (i === null || j === null || typeof engine.getAttract !== 'function') {
-    el.textContent = '行 = 受力方，列 = 作用方。绿吸引、红排斥。';
+    el.textContent = '行 = 受力方，列 = 作用方。青吸引、洋红排斥。';
     return;
   }
   const value = engine.getAttract(i, j);

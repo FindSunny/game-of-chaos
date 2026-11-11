@@ -13,12 +13,15 @@
 const MAX_ABS = 0.12; // 颜色映射的满量程
 const LABEL = 22; // 行列色标带宽度（CSS 像素）
 
-/** 与 particle-life-app 的 ImGuiMatrix 一致：正值绿、负值红，强度即 |值| */
+/** -MAX_ABS..MAX_ABS 映射到 青 ↔ 暗 ↔ 洋红（保留粒子配色的青/洋红约定） */
 function colorFor(value) {
   const t = Math.max(-1, Math.min(1, value / MAX_ABS));
-  return t >= 0
-    ? `rgb(0, ${Math.round(255 * t)}, 0)`
-    : `rgb(${Math.round(255 * -t)}, 0, 0)`;
+  if (t >= 0) {
+    const a = 0.15 + 0.85 * t;
+    return `rgba(53, 224, 200, ${a.toFixed(3)})`;
+  }
+  const a = 0.15 + 0.85 * -t;
+  return `rgba(244, 114, 182, ${a.toFixed(3)})`;
 }
 
 export class ForceMatrix {
