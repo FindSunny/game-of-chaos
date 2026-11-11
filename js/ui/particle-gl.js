@@ -20,13 +20,18 @@ uniform vec2 u_origin;
 uniform float u_zoom;
 uniform float u_radius;
 varying vec3 v_color;
+varying float v_boost;
 
 void main() {
   vec2 screen = a_pos * u_zoom + u_origin;
   vec2 clip = vec2(screen.x / u_resolution.x * 2.0 - 1.0,
                    1.0 - screen.y / u_resolution.y * 2.0);
   gl_Position = vec4(clip, 0.0, 1.0);
-  gl_PointSize = max(1.5, u_radius * u_zoom * 2.0);
+
+  // 缩小时点会变成 1-2 像素，靠提亮补偿覆盖率，否则和石墨底色糊在一起
+  float size = max(2.2, u_radius * u_zoom * 2.0);
+  gl_PointSize = size;
+  v_boost = clamp(1.0 - size / 8.0, 0.0, 1.0);
   v_color = a_color;
 }
 `;
@@ -34,6 +39,7 @@ void main() {
 const FRAG = `
 precision mediump float;
 varying vec3 v_color;
+varying float v_boost;
 
 void main() {
   vec2 d = gl_PointCoord * 2.0 - 1.0;
@@ -41,7 +47,11 @@ void main() {
   if (r2 > 1.0) discard;
   // 边缘一像素软化，缩小之后不会锯齿
   float alpha = smoothstep(1.0, 0.72, r2);
-  gl_FragColor = vec4(v_color, alpha);
+
+  // 全尺寸也提一档亮度，缩小时再额外往白里推（最多 55%）
+  float lift = 0.12 + v_boost * 0.55;
+  vec3 color = mix(v_color, vec3(1.0), clamp(lift, 0.0, 0.75));
+  gl_FragColor = vec4(color, alpha);
 }
 `;
 
