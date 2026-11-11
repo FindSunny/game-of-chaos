@@ -49,6 +49,12 @@ const NATURAL_RAINBOW = 'e8002e eb0029 ed0024 f0001f f2001c f20017 f50012 f7000d
   parseInt(h.slice(4, 6), 16),
 ]);
 
+/**
+ * 提亮：往白色方向混一点，深色（比如纯蓝 0,0,148）也能从背景里跳出来。
+ * 原调色板是给带泛光的渲染用的，直接搬到纯色圆点上偏暗。
+ */
+const BRIGHTEN = 0.32;
+
 function paletteColor(type, nTypes) {
   const n = Math.max(1, nTypes);
   const exact = (NATURAL_RAINBOW.length * type) / n;
@@ -57,7 +63,10 @@ function paletteColor(type, nTypes) {
   const f = exact - lo;
   const a = NATURAL_RAINBOW[lo];
   const b = NATURAL_RAINBOW[hi];
-  const c = [0, 1, 2].map((k) => Math.round(a[k] + (b[k] - a[k]) * f));
+  const c = [0, 1, 2].map((k) => {
+    const v = a[k] + (b[k] - a[k]) * f;
+    return Math.round(v + (255 - v) * BRIGHTEN);
+  });
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 }
 
