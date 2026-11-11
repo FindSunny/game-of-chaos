@@ -15,6 +15,7 @@ import { AsyncLifeEngine } from './core/async-engine.js';
 import { SparseWorld } from './core/sparse-world.js';
 import { SparseLifeEngine } from './core/sparse-life.js';
 import { ParticleLifeEngine, PARTICLE_PRESETS } from './core/particle-life.js';
+import { ParticleWorkerHost } from './core/worker-host.js';
 import { Renderer } from './ui/renderer.js';
 import { ForceMatrix } from './ui/force-matrix.js';
 import { PATTERNS, rotatePattern } from './ui/patterns.js';
@@ -141,9 +142,11 @@ function safeParseRule(text) {
   }
 }
 
+/** worker 起动失败一次就不再重试，避免每次切模式都抛异常 */
+let particleWorkerBlocked = false;
+
 function createEngine() {
-  if (state.mode === 'wuxing') {
-    return new WuxingEngine(board, { grow: state.grow, kill: state.kill });
+  if (state.mode === 'wuxing') {    return new WuxingEngine(board, { grow: state.grow, kill: state.kill });
   }
   if (state.mode === 'async') {
     return new AsyncLifeEngine(board, lifeRule, {
@@ -158,13 +161,28 @@ function createEngine() {
     return new SparseLifeEngine(board, lifeRule);
   }
   if (state.mode === 'particle') {
-    return new ParticleLifeEngine(1200, 800, {
+    const options = {
       preset: state.particlePreset,
       count: state.particleCount,
       wrap: state.particleWrap,
-    });
+    };
+    // 物理放到 worker 里跑，主线程只管渲染；拿不到 worker 就退回同线程
+    if (canUseParticleWorker()) {
+      try {
+        return new ParticleWorkerHost(1200, 800, options);
+      } catch (err) {
+        console.warn('[particle] worker 启动失败，退回主线程：', err.message);
+        particleWorkerBlocked = true;
+      }
+    }
+    return new ParticleLifeEngine(1200, 800, options);
   }
   return new Engine(board, lifeRule);
+}
+
+function canUseParticleWorker() {
+  if (particleWorkerBlocked) return false;
+  return typeof Worker !== 'undefined' && location.protocol !== 'file:';
 }
 
 let engine = createEngine();
@@ -212,15 +230,20 @@ function loop(now) {
       tick(dt);
     } else if (state.mode === 'particle') {
       // 粒子生命每帧走一步就是原版速度；速度滑杆是「每帧几步」。
-      // 但真的跑满会撑爆一帧，所以按时间预算截断：宁可慢一点，也别卡死。
+      // 物理在 worker 里时只发个请求，主线程不等结果，渲染上一帧的数据。
       const wanted = Math.max(1, Math.round(state.speed / 10));
-      const start = performance.now();
-      let ran = 0;
-      while (ran < wanted && (ran === 0 || performance.now() - start < 10)) {
-        engine.step();
-        ran++;
+      if (engine.isWorker) {
+        engine.requestFrame(wanted, 10);
+      } else {
+        // 没有 worker 时的同线程兜底：按时间预算截断，宁可慢也别卡死
+        const start = performance.now();
+        let ran = 0;
+        while (ran < wanted && (ran === 0 || performance.now() - start < 10)) {
+          engine.step();
+          ran++;
+        }
       }
-      recordHistory(engine.stats.population);
+      recordHistory(engine.count);
     } else {
       const interval = 1000 / state.speed;
       accumulator += dt;
@@ -561,6 +584,9 @@ function switchMode(mode) {
   // 无限模式用稀疏世界，其余用稠密网格；粒子模式不用网格
   board = mode === 'infinite' ? sparseWorld : denseBoard;
   if (mode === 'infinite') sparseWorld.clear();
+
+  // 离开粒子模式时把 worker 关掉，别留一个空转的线程
+  if (engine && engine.isWorker) engine.dispose();
 
   engine = createEngine();
 

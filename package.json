@@ -5,7 +5,7 @@
   "description": "元胞自动机沙盒：生命游戏、五行生克、异步因果、无限生命四种模式共用一套界面",
   "type": "module",
   "scripts": {
-    "test": "node tests/engine.test.mjs && node tests/wuxing.test.mjs && node tests/async.test.mjs && node tests/sparse.test.mjs && node tests/particle.test.mjs",
+    "test": "node tests/engine.test.mjs && node tests/wuxing.test.mjs && node tests/async.test.mjs && node tests/sparse.test.mjs && node tests/particle.test.mjs && node tests/worker.test.mjs",
     "serve": "python -m http.server 8080"
   }
 }

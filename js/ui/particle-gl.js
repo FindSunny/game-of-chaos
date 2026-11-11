@@ -138,7 +138,7 @@ export class ParticleGL {
   }
 
   ensureCapacity(n) {
-    if (n <= this.capacity) return;
+    if (this.data && this.data.length >= n * 5) return;
     this.capacity = Math.max(n, 256);
     this.data = new Float32Array(this.capacity * 5);
   }
@@ -166,6 +166,8 @@ export class ParticleGL {
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     const n = engine.count;
+    // worker 还没回第一帧时 count 是 0，直接跳过（上面已经 clear 过）
+    if (!n) return;
     this.ensureCapacity(n);
     this.syncColors(engine);
 
