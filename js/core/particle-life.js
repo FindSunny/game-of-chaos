@@ -50,10 +50,11 @@ const NATURAL_RAINBOW = 'e8002e eb0029 ed0024 f0001f f2001c f20017 f50012 f7000d
 ]);
 
 /**
- * 提亮：往白色方向混一点，深色（比如纯蓝 0,0,148）也能从背景里跳出来。
- * 原调色板是给带泛光的渲染用的，直接搬到纯色圆点上偏暗。
+ * 提亮分两步：先往白色方向混，再把每个通道推离均值一点。
+ * 只混白会发灰（pastel），只提亮不补饱和会显得脏；两步一起才是「亮而有色」。
  */
-const BRIGHTEN = 0.32;
+const BRIGHTEN = 0.46;
+const SATURATE = 1.28;
 
 function paletteColor(type, nTypes) {
   const n = Math.max(1, nTypes);
@@ -64,10 +65,12 @@ function paletteColor(type, nTypes) {
   const a = NATURAL_RAINBOW[lo];
   const b = NATURAL_RAINBOW[hi];
   const c = [0, 1, 2].map((k) => {
-    const v = a[k] + (b[k] - a[k]) * f;
-    return Math.round(v + (255 - v) * BRIGHTEN);
+    const base = a[k] + (b[k] - a[k]) * f;
+    return base + (255 - base) * BRIGHTEN;
   });
-  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+  const mean = (c[0] + c[1] + c[2]) / 3;
+  const out = c.map((v) => Math.max(0, Math.min(255, Math.round(mean + (v - mean) * SATURATE))));
+  return `rgb(${out[0]}, ${out[1]}, ${out[2]})`;
 }
 
 export class ParticleLifeEngine {
