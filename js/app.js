@@ -56,7 +56,7 @@ const DEFAULTS = {
   particlePreset: 'Gliders',
   particleCount: 400,
   particleWrap: true,
-  particleTrace: true,
+  particleTrace: false, // 描边（速度箭头）默认关，先只看圆点
 };
 
 /** 本地时间着色：越绿越新，越蓝越落后 */
@@ -74,6 +74,8 @@ function loadSettings() {
     if (!['life', 'wuxing', 'async', 'infinite', 'particle'].includes(merged.mode)) {
       merged.mode = DEFAULTS.mode;
     }
+    // 描边不记忆：每次打开都从「只有圆点」开始
+    merged.particleTrace = false;
     return merged;
   } catch {
     return { ...DEFAULTS };
