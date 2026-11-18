@@ -160,4 +160,48 @@ test('趋化关闭时，团块几乎不动', () => {
   assert.ok(Math.abs(x1 - x0) < 10, `无趋化应基本不动，${x0.toFixed(0)} -> ${x1.toFixed(0)}`);
 });
 
-console.log('\n全部通过：14 项（黏性个体引擎）');
+console.log('\n物种间键矩阵');
+
+test('键矩阵对角线为 1，非对角在合法范围内', () => {
+  const g = new ColonyEngine(1200, 800, { seed: 1, seedCount: 0, species: 4 });
+  for (let i = 0; i < g.species.length; i++) {
+    assert.equal(g.bond[i][i], 1);
+    for (let j = 0; j < g.species.length; j++) {
+      assert.ok(g.bond[i][j] >= -0.6 && g.bond[i][j] <= 1.0, `键值越界 ${g.bond[i][j]}`);
+    }
+  }
+});
+
+test('异色正键吸引、负键排斥', () => {
+  // 正键：互相靠近
+  const a = new ColonyEngine(1200, 800, { seed: 2, seedCount: 0, species: 2, crossAttract: 0.5, crossR: 40, foodMax: 0, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, chemotaxis: 0 });
+  a.bond[0][1] = 1;
+  a.bond[1][0] = 1;
+  a._push(0, 400, 400, 100);
+  a._push(1, 430, 400, 100);
+  a.vx[0] = a.vy[0] = a.vx[1] = a.vy[1] = 0;
+  const d0 = Math.hypot(a.x[1] - a.x[0], a.y[1] - a.y[0]);
+  for (let i = 0; i < 60; i++) a.step();
+  const d1 = Math.hypot(a.x[1] - a.x[0], a.y[1] - a.y[0]);
+  assert.ok(d1 < d0, `正键应靠近 ${d0.toFixed(1)} -> ${d1.toFixed(1)}`);
+
+  // 负键：互相排斥
+  const b = new ColonyEngine(1200, 800, { seed: 3, seedCount: 0, species: 2, crossAttract: 0.5, crossR: 40, foodMax: 0, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, chemotaxis: 0 });
+  b.bond[0][1] = -0.6;
+  b.bond[1][0] = -0.6;
+  b._push(0, 400, 400, 100);
+  b._push(1, 415, 400, 100);
+  b.vx[0] = b.vy[0] = b.vx[1] = b.vy[1] = 0;
+  const e0 = Math.hypot(b.x[1] - b.x[0], b.y[1] - b.y[0]);
+  for (let i = 0; i < 60; i++) b.step();
+  const e1 = Math.hypot(b.x[1] - b.x[0], b.y[1] - b.y[0]);
+  assert.ok(e1 > e0, `负键应排斥 ${e0.toFixed(1)} -> ${e1.toFixed(1)}`);
+});
+
+test('重掷矩阵只改非对角，对角线保持 1', () => {
+  const g = new ColonyEngine(1200, 800, { seed: 4, seedCount: 0, species: 4 });
+  g.randomizeBonds();
+  for (let i = 0; i < g.species.length; i++) assert.equal(g.bond[i][i], 1);
+});
+
+console.log('\n全部通过：18 项（黏性个体引擎）');

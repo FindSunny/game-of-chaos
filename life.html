@@ -133,6 +133,14 @@
               <span id="chemo-val" class="value mono">0.15</span>
             </div>
             <div class="row">
+              <span class="slabel" title="不同物种之间的相互作用强度；每对的正负由键矩阵决定">异色作用</span>
+              <input id="cross" type="range" min="0" max="30" step="1" value="10" />
+              <span id="cross-val" class="value mono">0.10</span>
+            </div>
+            <div class="presets">
+              <button id="btn-bonds" class="preset-btn" type="button">重掷键矩阵</button>
+            </div>
+            <div class="row">
               <span class="slabel">速度</span>
               <input id="speed" type="range" min="1" max="10" step="1" value="2" />
               <span id="speed-val" class="value mono">2 步/帧</span>
@@ -148,8 +156,8 @@
               能量耗尽粒子死亡，团块解体；食物缓慢再生。<br />
               <b>第二步：形态遗传 + 变异 + 选择。</b><br />
               团块分裂时，子代有一定概率变成基因组略有偏离的<b>新物种（新颜色）</b>。<br />
-              不同物种的吸引力（凝聚形态）和代谢率（生存成本）不同，<br />
-              在食物竞争里此消彼长——看物种是分化还是灭绝。
+              不同物种之间还有一张<b>键矩阵</b>：每对物种正吸引、负排斥（像粒子生命）。<br />
+              在食物竞争里此消彼长——看物种是分化、共生还是灭绝。
             </p>
           </section>
         </div>
@@ -273,6 +281,7 @@
         engine.foodRegen = Number($('food-regen').value) / 1000;
         engine.mortalityRate = Number($('mortality').value) / 1000;
         engine.chemotaxis = Number($('chemo').value) / 100;
+        engine.crossAttract = Number($('cross').value) / 100;
       }
 
       $('btn-play').addEventListener('click', () => {
@@ -302,6 +311,10 @@
       bindRange('mortality', 'mortality-val', 0.001, (v) => v.toFixed(3));
       bindRange('mut-std', 'mut-std-val', 0.01, (v) => v.toFixed(2));
       bindRange('chemo', 'chemo-val', 0.01, (v) => v.toFixed(2));
+      bindRange('cross', 'cross-val', 0.01, (v) => v.toFixed(2));
+      $('btn-bonds').addEventListener('click', () => {
+        engine.randomizeBonds();
+      });
       $('speed').addEventListener('input', () => {
         speed = Number($('speed').value);
         $('speed-val').textContent = `${speed} 步/帧`;

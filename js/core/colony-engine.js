@@ -44,8 +44,9 @@ export class ColonyEngine {
     this.attractR = o.attractR ?? 40; // 吸引作用半径
     this.repel = o.repel ?? 1; // 软核排斥强度
     this.repelR = 8; // 软核半径
-    this.crossRepel = o.crossRepel ?? 0.02; // 异色排斥
-    this.crossR = o.crossR ?? 24; // 异色排斥半径
+    this.crossRepel = o.crossRepel ?? 0.02; // 保留：异色排斥强度（旧，未用）
+    this.crossAttract = o.crossAttract ?? 0.1; // 异色相互作用强度
+    this.crossR = o.crossR ?? 24; // 异色作用半径
     this.bondR = o.bondR ?? 24; // 判定「属于同一个体」的键距
     this.maxSize = o.maxSize ?? 60; // 团块超过这个尺寸就分裂
 
@@ -87,12 +88,33 @@ export class ColonyEngine {
 
     // 物种：每个物种一个可遗传基因组 { attract, metabolism, color }
     this.species = [];
+    // 物种间键矩阵 bond[i][j]：对角线 = 1（同物种凝聚），非对角正负随机
+    this.bond = [];
     const n0 = o.species ?? 6;
     for (let i = 0; i < n0; i++) this._newSpecies();
 
     this.seed(o.seedCount ?? 300);
     this.steps = 0;
     this.individuals = 0;
+  }
+
+  /** 随机键值：高斯扰动夹在 ±0.6，正吸引负排斥 */
+  _randomBond() {
+    let v = this._gauss() * 0.3;
+    if (v > 0.6) v = 0.6;
+    else if (v < -0.6) v = -0.6;
+    return v;
+  }
+
+  /** 重掷物种间键矩阵（对角线保持 1） */
+  randomizeBonds() {
+    const n = this.species.length;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        this.bond[i][j] = this._randomBond();
+      }
+    }
   }
 
   /** 新建一个物种，返回其 id；颜色按黄金角取，保证彼此区分 */
@@ -104,6 +126,12 @@ export class ColonyEngine {
       metabolism: metabolism ?? this.baseMetabolism,
       color: `hsl(${hue}, 70%, 55%)`,
     });
+    // 扩展键矩阵：新物种与已有物种各得一个随机键，对角线 = 1
+    const row = new Array(id + 1);
+    for (let j = 0; j < id; j++) row[j] = this._randomBond();
+    row[id] = 1;
+    this.bond.push(row);
+    for (let i = 0; i < id; i++) this.bond[i].push(this._randomBond());
     return id;
   }
 
@@ -253,8 +281,10 @@ export class ColonyEngine {
                 fy += dy * f;
               }
             } else if (d2 < this.crossR * this.crossR) {
+              // 异色：按物种间键矩阵，正吸引、负排斥
               const d = Math.sqrt(d2);
-              const f = -this.crossRepel / d;
+              const b = this.bond[ti][this.type[j]];
+              const f = (b * this.crossAttract) / d;
               fx += dx * f;
               fy += dy * f;
             }
