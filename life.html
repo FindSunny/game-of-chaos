@@ -143,7 +143,7 @@
 
       <main class="evo-stage">
         <canvas id="evo-canvas"></canvas>
-        <div class="legend">同色 = 同一个体；绿色 = 食物场</div>
+        <div class="legend">同色 = 同一个体；浅琥珀色细点 = 食物</div>
       </main>
     </div>
 
@@ -170,10 +170,14 @@
         cam.oy = (h - engine.height * cam.zoom) / 2;
       }
 
+      // 食物层：把粗网格的营养场用 Bayer 抖动渲染成细密的点状颗粒，
+      // 分辨率是网格的 4 倍，每个格 4x4 个「食物点」，点越多 = 食物越多。
+      const DOTS = 4;
       const foodLayer = document.createElement('canvas');
-      foodLayer.width = engine.foodCols;
-      foodLayer.height = engine.foodRows;
+      foodLayer.width = engine.foodCols * DOTS;
+      foodLayer.height = engine.foodRows * DOTS;
       const fctx = foodLayer.getContext('2d');
+      const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 
       function render() {
         const w = canvas.clientWidth;
@@ -188,22 +192,34 @@
         ctx.fillStyle = '#0a1119';
         ctx.fillRect(0, 0, w, h);
 
-        // 食物热图：低分辨率离屏 + 双线性放大 → 平滑的营养场
-        const img = fctx.createImageData(engine.foodCols, engine.foodRows);
-        for (let i = 0; i < engine.food.length; i++) {
-          const v = engine.food[i] / engine.foodMax;
-          const o = i * 4;
-          img.data[o] = 20;
-          img.data[o + 1] = 70 + 160 * v;
-          img.data[o + 2] = 40;
-          img.data[o + 3] = Math.round(30 + 170 * v);
+        // 食物颗粒：浅琥珀色细点
+        const fw = engine.foodCols * DOTS;
+        const fh = engine.foodRows * DOTS;
+        const img = fctx.createImageData(fw, fh);
+        for (let cy = 0; cy < engine.foodRows; cy++) {
+          for (let cx = 0; cx < engine.foodCols; cx++) {
+            const v = engine.food[cy * engine.foodCols + cx] / engine.foodMax;
+            const level = v * (DOTS * DOTS); // 0..16
+            for (let dy = 0; dy < DOTS; dy++) {
+              for (let dx = 0; dx < DOTS; dx++) {
+                if (BAYER[dy * DOTS + dx] >= level) continue;
+                const px = cx * DOTS + dx;
+                const py = cy * DOTS + dy;
+                const o = (py * fw + px) * 4;
+                img.data[o] = 232;
+                img.data[o + 1] = 210;
+                img.data[o + 2] = 158;
+                img.data[o + 3] = 200;
+              }
+            }
+          }
         }
         fctx.putImageData(img, 0, 0);
         ctx.imageSmoothingEnabled = true;
-        ctx.globalAlpha = 0.85;
+        ctx.globalAlpha = 0.9;
         ctx.drawImage(
           foodLayer,
-          0, 0, engine.foodCols, engine.foodRows,
+          0, 0, fw, fh,
           cam.ox, cam.oy, engine.width * cam.zoom, engine.height * cam.zoom,
         );
         ctx.globalAlpha = 1;
