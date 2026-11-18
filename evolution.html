@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>演化沙盒 · 粒子复制实验</title>
+    <link rel="stylesheet" href="css/style.css" />
+    <style>
+      body {
+        background: #05080c;
+      }
+      .evo-grid {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        height: 100vh;
+        overflow: hidden;
+      }
+      .evo-side {
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--line);
+        background: var(--panel);
+        overflow: hidden;
+      }
+      .evo-brand {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .evo-brand h1 {
+        margin: 0;
+        font-size: 15px;
+        letter-spacing: 0.08em;
+      }
+      .evo-brand a {
+        color: var(--muted);
+        font-size: 12px;
+        text-decoration: none;
+      }
+      .evo-brand a:hover {
+        color: var(--text);
+      }
+      .evo-scroll {
+        flex: 1;
+        overflow-y: auto;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .evo-stage {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+      }
+      #evo-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        cursor: grab;
+      }
+      .legend {
+        position: absolute;
+        left: 14px;
+        top: 12px;
+        font-size: 11px;
+        color: rgba(226, 232, 240, 0.85);
+        pointer-events: none;
+      }
+      .legend .bar {
+        display: inline-block;
+        width: 120px;
+        height: 8px;
+        border-radius: 4px;
+        vertical-align: middle;
+        background: linear-gradient(90deg, #3b82f6, #22c55e, #ef4444);
+      }
+      .histo {
+        display: block;
+        width: 100%;
+        height: 90px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel-2, #0a1119);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="evo-grid">
+      <aside class="evo-side">
+        <div class="evo-brand">
+          <h1>演化沙盒</h1>
+          <a href="index.html">← 返回 Game of Chaos</a>
+        </div>
+
+        <div class="evo-scroll">
+          <div class="transport">
+            <button id="btn-play" class="btn primary" type="button">▶ 播放</button>
+            <button id="btn-step" class="btn" type="button">单步</button>
+            <button id="btn-reset" class="btn" type="button">重置</button>
+          </div>
+
+          <section class="block">
+            <h2>状态</h2>
+            <dl class="stats">
+              <div><dt>种群</dt><dd id="stat-pop" class="mono">0</dd></div>
+              <div><dt>世代</dt><dd id="stat-gen" class="mono">0</dd></div>
+              <div><dt>平均基因组</dt><dd id="stat-mean" class="mono">0</dd></div>
+              <div><dt>基因组 σ</dt><dd id="stat-sd" class="mono">0</dd></div>
+              <div><dt>食物总量</dt><dd id="stat-food" class="mono">0</dd></div>
+            </dl>
+            <canvas id="histo" class="histo"></canvas>
+            <p class="hint">直方图 = 基因组分布（蓝→低效率，红→高效率）。</p>
+          </section>
+
+          <section class="block">
+            <h2>规则参数</h2>
+            <div class="row">
+              <span class="slabel" title="复制时基因组对数扰动的标准差；越大变异越猛">变异强度</span>
+              <input id="mut-std" type="range" min="0" max="30" step="1" value="8" />
+              <span id="mut-std-val" class="value mono">0.08</span>
+            </div>
+            <div class="row">
+              <span class="slabel" title="每步每格食物的再生量；决定资源松紧">食物再生</span>
+              <input id="food-regen" type="range" min="0" max="60" step="1" value="20" />
+              <span id="food-regen-val" class="value mono">0.020</span>
+            </div>
+            <div class="row">
+              <span class="slabel" title="代谢 = 系数 × g²；越大越贵，选择压力越强">代谢系数</span>
+              <input id="metab" type="range" min="1" max="12" step="1" value="4" />
+              <span id="metab-val" class="value mono">0.04</span>
+            </div>
+            <div class="row">
+              <span class="slabel" title="能量攒到这个值就一分为二">复制阈值</span>
+              <input id="rep-thresh" type="range" min="4" max="30" step="1" value="10" />
+              <span id="rep-thresh-val" class="value mono">10</span>
+            </div>
+            <div class="row">
+              <span class="slabel" title="每步随机死亡概率；制造新老更替，让进化不停摆">死亡率</span>
+              <input id="mortality" type="range" min="0" max="10" step="1" value="2" />
+              <span id="mortality-val" class="value mono">0.002</span>
+            </div>
+            <div class="row">
+              <span class="slabel">速度</span>
+              <input id="speed" type="range" min="1" max="30" step="1" value="3" />
+              <span id="speed-val" class="value mono">3 步/帧</span>
+            </div>
+          </section>
+
+          <section class="block">
+            <h2>规则说明</h2>
+            <p class="hint">
+              绿色是食物，被吃掉、缓慢再生。<br />
+              每个粒子带一个可遗传的「基因组」（采收效率 g）：<br />
+              · 进食 ∝ g，代谢 ∝ g²<em>（净收益在 g≈1.9 最优）</em><br />
+              · 能量 ≥ 阈值 → 复制，子代 g 带对数扰动<br />
+              · 能量 ≤ 0 → 死亡<br />
+              颜色 = 基因组：蓝低、绿中、红高。<br />
+              几万步后，看分布往哪收敛、会不会分化出「物种」。
+            </p>
+          </section>
+        </div>
+      </aside>
+
+      <main class="evo-stage">
+        <canvas id="evo-canvas"></canvas>
+        <div class="legend"><span class="bar"></span> 基因组 低 → 高</div>
+      </main>
+    </div>
+
+    <script type="module">
+      import { EvoEngine } from './js/core/evo-engine.js';
+
+      const $ = (id) => document.getElementById(id);
+      const canvas = $('evo-canvas');
+      const ctx = canvas.getContext('2d');
+      const histo = $('histo');
+      const hctx = histo.getContext('2d');
+
+      let engine = new EvoEngine(1200, 800);
+
+      // 相机
+      const cam = { zoom: 1, ox: 0, oy: 0 };
+      function fit() {
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        cam.zoom = Math.min(w / engine.width, h / engine.height) * 0.98;
+        cam.ox = (w - engine.width * cam.zoom) / 2;
+        cam.oy = (h - engine.height * cam.zoom) / 2;
+      }
+
+      // 食物热图：画到 60x40 的低分辨率离屏，再放大，避免 2400 次 fillRect
+      const foodLayer = document.createElement('canvas');
+      foodLayer.width = engine.foodCols;
+      foodLayer.height = engine.foodRows;
+      const fctx = foodLayer.getContext('2d');
+
+      function genomeColor(g) {
+        const t = Math.max(0, Math.min(1, (g - 0.05) / (2.5 - 0.05)));
+        return `hsl(${200 - 200 * t}, 80%, 55%)`;
+      }
+
+      function render() {
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        if (!w || !h) return;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+          canvas.width = Math.round(w * dpr);
+          canvas.height = Math.round(h * dpr);
+        }
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.fillStyle = '#0a1119';
+        ctx.fillRect(0, 0, w, h);
+
+        // 食物热图
+        const img = fctx.createImageData(engine.foodCols, engine.foodRows);
+        for (let i = 0; i < engine.food.length; i++) {
+          const v = engine.food[i] / engine.foodMax;
+          const o = i * 4;
+          img.data[o] = 40;
+          img.data[o + 1] = 120 + 90 * v;
+          img.data[o + 2] = 90;
+          img.data[o + 3] = Math.round(40 + 150 * v);
+        }
+        fctx.putImageData(img, 0, 0);
+        ctx.imageSmoothingEnabled = false;
+        ctx.globalAlpha = 0.9;
+        ctx.drawImage(
+          foodLayer,
+          0,
+          0,
+          engine.foodCols,
+          engine.foodRows,
+          cam.ox,
+          cam.oy,
+          engine.width * cam.zoom,
+          engine.height * cam.zoom,
+        );
+        ctx.globalAlpha = 1;
+
+        // 复制子：按基因组上色的小方块
+        const s = Math.max(1.5, 3 * cam.zoom);
+        for (let i = 0; i < engine.count; i++) {
+          ctx.fillStyle = genomeColor(engine.genome[i]);
+          ctx.fillRect(cam.ox + engine.x[i] * cam.zoom - s / 2, cam.oy + engine.y[i] * cam.zoom - s / 2, s, s);
+        }
+      }
+
+      const HIST_BINS = 24;
+      const HIST_LO = 0.05;
+      const HIST_HI = 2.5;
+      function drawHisto() {
+        const w = histo.clientWidth;
+        const h = histo.clientHeight;
+        if (!w || !h) return;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        if (histo.width !== Math.round(w * dpr) || histo.height !== Math.round(h * dpr)) {
+          histo.width = Math.round(w * dpr);
+          histo.height = Math.round(h * dpr);
+        }
+        hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        hctx.fillStyle = '#0a1119';
+        hctx.fillRect(0, 0, w, h);
+
+        const bins = new Array(HIST_BINS).fill(0);
+        for (let i = 0; i < engine.count; i++) {
+          const g = engine.genome[i];
+          let b = Math.floor(((g - HIST_LO) / (HIST_HI - HIST_LO)) * HIST_BINS);
+          if (b < 0) b = 0;
+          else if (b >= HIST_BINS) b = HIST_BINS - 1;
+          bins[b]++;
+        }
+        const max = Math.max(1, ...bins);
+        const bw = w / HIST_BINS;
+        for (let b = 0; b < HIST_BINS; b++) {
+          const bh = (bins[b] / max) * (h - 4);
+          const g = HIST_LO + (b + 0.5) * ((HIST_HI - HIST_LO) / HIST_BINS);
+          hctx.fillStyle = genomeColor(g);
+          hctx.fillRect(b * bw + 1, h - bh - 2, bw - 2, bh);
+        }
+      }
+
+      function syncStats() {
+        const s = engine.stats();
+        $('stat-pop').textContent = s.count;
+        $('stat-gen').textContent = s.steps;
+        $('stat-mean').textContent = s.meanGenome.toFixed(3);
+        $('stat-sd').textContent = s.sdGenome.toFixed(3);
+        $('stat-food').textContent = s.foodTotal.toFixed(0);
+      }
+
+      let running = true;
+      let speed = 3;
+
+      function tick() {
+        if (running) {
+          for (let k = 0; k < speed; k++) engine.step();
+        }
+      }
+
+      function loop() {
+        tick();
+        render();
+        syncStats();
+        drawHisto();
+        requestAnimationFrame(loop);
+      }
+
+      /* ---------- 绑定 ---------- */
+      function bindRange(id, valId, scale, fmt) {
+        const el = $(id);
+        el.addEventListener('input', () => {
+          const v = Number(el.value) * scale;
+          $(valId).textContent = fmt(v);
+        });
+      }
+      function applyParams() {
+        engine.mutStd = Number($('mut-std').value) / 100;
+        engine.foodRegen = Number($('food-regen').value) / 1000;
+        engine.metabolismCoeff = Number($('metab').value) / 100;
+        engine.repThreshold = Number($('rep-thresh').value);
+        engine.mortalityRate = Number($('mortality').value) / 1000;
+      }
+
+      $('btn-play').addEventListener('click', () => {
+        running = !running;
+        $('btn-play').textContent = running ? '⏸ 暂停' : '▶ 播放';
+      });
+      $('btn-step').addEventListener('click', () => {
+        engine.step();
+        syncStats();
+        drawHisto();
+      });
+      $('btn-reset').addEventListener('click', () => {
+        engine = new EvoEngine(1200, 800);
+        applyParams();
+      });
+
+      bindRange('mut-std', 'mut-std-val', 0.01, (v) => v.toFixed(2));
+      bindRange('food-regen', 'food-regen-val', 0.001, (v) => v.toFixed(3));
+      bindRange('metab', 'metab-val', 0.01, (v) => v.toFixed(2));
+      bindRange('rep-thresh', 'rep-thresh-val', 1, (v) => String(v));
+      bindRange('mortality', 'mortality-val', 0.001, (v) => v.toFixed(3));
+      $('speed').addEventListener('input', () => {
+        speed = Number($('speed').value);
+        $('speed-val').textContent = `${speed} 步/帧`;
+      });
+      for (const id of ['mut-std', 'food-regen', 'metab', 'rep-thresh', 'mortality']) {
+        $(id).addEventListener('input', applyParams);
+      }
+
+      // 相机交互：滚轮缩放 + 拖拽平移
+      canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        const z = cam.zoom * factor;
+        cam.ox = mx - ((mx - cam.ox) / cam.zoom) * z;
+        cam.oy = my - ((my - cam.oy) / cam.zoom) * z;
+        cam.zoom = z;
+      }, { passive: false });
+
+      let dragging = false;
+      let lastX = 0;
+      let lastY = 0;
+      canvas.addEventListener('pointerdown', (e) => {
+        dragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        canvas.setPointerCapture(e.pointerId);
+        canvas.style.cursor = 'grabbing';
+      });
+      canvas.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        cam.ox += e.clientX - lastX;
+        cam.oy += e.clientY - lastY;
+        lastX = e.clientX;
+        lastY = e.clientY;
+      });
+      canvas.addEventListener('pointerup', () => {
+        dragging = false;
+        canvas.style.cursor = 'grab';
+      });
+
+      const ro = new ResizeObserver(() => {
+        fit();
+        render();
+        drawHisto();
+      });
+      ro.observe(canvas);
+      ro.observe(histo);
+
+      $('btn-play').textContent = running ? '⏸ 暂停' : '▶ 播放';
+      fit();
+      requestAnimationFrame(loop);
+    </script>
+  </body>
+</html>
