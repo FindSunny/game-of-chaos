@@ -65,6 +65,7 @@ export class ColonyEngine {
 
     this.friction = o.friction ?? 0.06;
     this.splitInterval = o.splitInterval ?? 30; // 每隔多少步做一次分裂
+    this.chemotaxis = o.chemotaxis ?? 0.15; // 趋化强度：往食物浓度高的方向游
 
     this.rng = mulberry32(o.seed ?? 20261118);
 
@@ -146,6 +147,19 @@ export class ColonyEngine {
     if (cy < 0) cy = 0;
     else if (cy >= this.foodRows) cy = this.foodRows - 1;
     return cy * this.foodCols + cx;
+  }
+
+  /** 食物浓度梯度（归一化前的方向）：比较左右、上下相邻格 */
+  _foodGradient(x, y) {
+    const ci = this._cellIndex(x, y);
+    const cx = ci % this.foodCols;
+    const cy = Math.floor(ci / this.foodCols);
+    const f = (cxi, cyi) => this.food[cyi * this.foodCols + cxi];
+    const fl = f(Math.max(0, cx - 1), cy);
+    const fr = f(Math.min(this.foodCols - 1, cx + 1), cy);
+    const fu = f(cx, Math.max(0, cy - 1));
+    const fd = f(cx, Math.min(this.foodRows - 1, cy + 1));
+    return { gx: fr - fl, gy: fd - fu };
   }
 
   _gauss() {
@@ -247,6 +261,16 @@ export class ColonyEngine {
           }
         }
       }
+      // 趋化：往食物浓度高的方向游，团块才有「觅食迁移」的净位移
+      if (this.chemotaxis > 0) {
+        const grad = this._foodGradient(px, py);
+        const glen = Math.hypot(grad.gx, grad.gy);
+        if (glen > 1e-4) {
+          fx += (grad.gx / glen) * this.chemotaxis;
+          fy += (grad.gy / glen) * this.chemotaxis;
+        }
+      }
+
       this.ax[i] = fx;
       this.ay[i] = fy;
     }

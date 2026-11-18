@@ -125,4 +125,39 @@ test('长期运行：物种数不会超过 maxSpecies，统计自洽', () => {
   assert.ok(s.speciesCount > 0, '应有存活物种');
 });
 
-console.log('\n全部通过：12 项（黏性个体引擎）');
+console.log('\n趋化（觅食迁移）');
+
+test('趋化开启时，团块会往食物浓度高的方向迁移', () => {
+  const g = new ColonyEngine(1200, 800, { seed: 1, seedCount: 0, species: 1, chemotaxis: 0.5, foodMax: 2, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, friction: 0.05 });
+  // 静态食物梯度：左贫右富
+  for (let c = 0; c < g.food.length; c++) {
+    const cx = c % g.foodCols;
+    g.food[c] = (cx / g.foodCols) * g.foodMax;
+  }
+  for (let i = 0; i < 8; i++) g._push(0, 80 + (i % 4) * 5, 400 + Math.floor(i / 4) * 5, 100);
+  const centroid = () => {
+    let s = 0;
+    for (let i = 0; i < g.count; i++) s += g.x[i];
+    return s / g.count;
+  };
+  const x0 = centroid();
+  for (let i = 0; i < 300; i++) g.step();
+  const x1 = centroid();
+  assert.ok(x1 > x0 + 20, `团块应往右迁移，${x0.toFixed(0)} -> ${x1.toFixed(0)}`);
+});
+
+test('趋化关闭时，团块几乎不动', () => {
+  const g = new ColonyEngine(1200, 800, { seed: 1, seedCount: 0, species: 1, chemotaxis: 0, foodMax: 2, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, friction: 0.05 });
+  for (let i = 0; i < 8; i++) g._push(0, 80 + (i % 4) * 5, 400 + Math.floor(i / 4) * 5, 100);
+  const centroid = () => {
+    let s = 0;
+    for (let i = 0; i < g.count; i++) s += g.x[i];
+    return s / g.count;
+  };
+  const x0 = centroid();
+  for (let i = 0; i < 300; i++) g.step();
+  const x1 = centroid();
+  assert.ok(Math.abs(x1 - x0) < 10, `无趋化应基本不动，${x0.toFixed(0)} -> ${x1.toFixed(0)}`);
+});
+
+console.log('\n全部通过：14 项（黏性个体引擎）');

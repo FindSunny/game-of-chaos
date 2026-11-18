@@ -128,6 +128,11 @@
               <span id="mortality-val" class="value mono">0.001</span>
             </div>
             <div class="row">
+              <span class="slabel" title="粒子往食物浓度高的方向游的强度；越大团块越爱动">趋化</span>
+              <input id="chemo" type="range" min="0" max="50" step="1" value="15" />
+              <span id="chemo-val" class="value mono">0.15</span>
+            </div>
+            <div class="row">
               <span class="slabel">速度</span>
               <input id="speed" type="range" min="1" max="10" step="1" value="2" />
               <span id="speed-val" class="value mono">2 步/帧</span>
@@ -267,6 +272,7 @@
         engine.maxSize = Number($('max-size').value);
         engine.foodRegen = Number($('food-regen').value) / 1000;
         engine.mortalityRate = Number($('mortality').value) / 1000;
+        engine.chemotaxis = Number($('chemo').value) / 100;
       }
 
       $('btn-play').addEventListener('click', () => {
@@ -295,6 +301,7 @@
       bindRange('food-regen', 'food-regen-val', 0.001, (v) => v.toFixed(3));
       bindRange('mortality', 'mortality-val', 0.001, (v) => v.toFixed(3));
       bindRange('mut-std', 'mut-std-val', 0.01, (v) => v.toFixed(2));
+      bindRange('chemo', 'chemo-val', 0.01, (v) => v.toFixed(2));
       $('speed').addEventListener('input', () => {
         speed = Number($('speed').value);
         $('speed-val').textContent = `${speed} 步/帧`;
