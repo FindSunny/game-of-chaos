@@ -88,6 +88,7 @@
             <dl class="stats">
               <div><dt>粒子数</dt><dd id="stat-pop" class="mono">0</dd></div>
               <div><dt>个体数</dt><dd id="stat-ind" class="mono">0</dd></div>
+              <div><dt>物种数</dt><dd id="stat-species" class="mono">0</dd></div>
               <div><dt>世代</dt><dd id="stat-gen" class="mono">0</dd></div>
               <div><dt>食物总量</dt><dd id="stat-food" class="mono">0</dd></div>
             </dl>
@@ -96,7 +97,12 @@
           <section class="block">
             <h2>规则参数</h2>
             <div class="row">
-              <span class="slabel" title="同色粒子的物种数量（每种一个颜色）">物种数</span>
+              <span class="slabel" title="分裂时子代基因组变异的幅度；0 = 关（纯第一步）">变异强度</span>
+              <input id="mut-std" type="range" min="0" max="50" step="1" value="25" />
+              <span id="mut-std-val" class="value mono">0.25</span>
+            </div>
+            <div class="row">
+              <span class="slabel" title="同色粒子的物种数量（每种一个颜色）">初始物种</span>
               <select id="species" class="mono">
                 <option value="2">2</option>
                 <option value="3">3</option>
@@ -135,7 +141,10 @@
               同色粒子互相吸引成团（有边界），异色之间互斥。<br />
               个体吃绿色食物攒能量 → 出芽长大 → 超过分裂尺寸一分为二。<br />
               能量耗尽粒子死亡，团块解体；食物缓慢再生。<br />
-              <b>这一步只验证：结构能否稳定地自我复制</b>，还没有变异和选择。
+              <b>第二步：形态遗传 + 变异 + 选择。</b><br />
+              团块分裂时，子代有一定概率变成基因组略有偏离的<b>新物种（新颜色）</b>。<br />
+              不同物种的吸引力（凝聚形态）和代谢率（生存成本）不同，<br />
+              在食物竞争里此消彼长——看物种是分化还是灭绝。
             </p>
           </section>
         </div>
@@ -153,11 +162,6 @@
       const $ = (id) => document.getElementById(id);
       const canvas = $('evo-canvas');
       const ctx = canvas.getContext('2d');
-
-      const SPECIES_COLORS = [
-        '#EF4444', '#F97316', '#EAB308', '#22C55E', '#14B8A6',
-        '#06B6D4', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B',
-      ];
 
       let engine = new ColonyEngine(1200, 800);
 
@@ -227,7 +231,8 @@
         // 粒子：按物种上色的小圆点
         const r = Math.max(1.5, 3.5 * cam.zoom);
         for (let i = 0; i < engine.count; i++) {
-          ctx.fillStyle = SPECIES_COLORS[engine.type[i] % SPECIES_COLORS.length];
+          const sp = engine.species[engine.type[i]];
+          ctx.fillStyle = sp ? sp.color : '#ccc';
           const px = cam.ox + engine.x[i] * cam.zoom;
           const py = cam.oy + engine.y[i] * cam.zoom;
           ctx.beginPath();
@@ -240,6 +245,7 @@
         const s = engine.stats();
         $('stat-pop').textContent = s.count;
         $('stat-ind').textContent = s.individuals;
+        $('stat-species').textContent = `${s.speciesCount} / ${s.totalSpecies}`;
         $('stat-gen').textContent = s.steps;
         $('stat-food').textContent = s.foodTotal.toFixed(0);
       }
@@ -257,7 +263,7 @@
       }
 
       function applyParams() {
-        engine.nSpecies = Number($('species').value);
+        engine.mutStd = Number($('mut-std').value) / 100;
         engine.maxSize = Number($('max-size').value);
         engine.foodRegen = Number($('food-regen').value) / 1000;
         engine.mortalityRate = Number($('mortality').value) / 1000;
@@ -288,6 +294,7 @@
       bindRange('max-size', 'max-size-val', 1, (v) => String(v));
       bindRange('food-regen', 'food-regen-val', 0.001, (v) => v.toFixed(3));
       bindRange('mortality', 'mortality-val', 0.001, (v) => v.toFixed(3));
+      bindRange('mut-std', 'mut-std-val', 0.01, (v) => v.toFixed(2));
       $('speed').addEventListener('input', () => {
         speed = Number($('speed').value);
         $('speed-val').textContent = `${speed} 步/帧`;

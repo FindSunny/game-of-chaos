@@ -21,7 +21,7 @@ test('初始种群非空，食物非空', () => {
 
 test('类型都在合法范围内', () => {
   for (let i = 0; i < e.count; i++) {
-    assert.ok(e.type[i] >= 0 && e.type[i] < e.nSpecies);
+    assert.ok(e.type[i] >= 0 && e.type[i] < e.species.length);
   }
 });
 
@@ -88,4 +88,41 @@ test('无 NaN，边界内', () => {
   }
 });
 
-console.log('\n全部通过：8 项（黏性个体引擎）');
+console.log('\n第二步：形态遗传与变异');
+
+test('变异开启时，分裂会产生新物种', () => {
+  const g = new ColonyEngine(1200, 800, { seed: 10, seedCount: 0, maxSize: 8, bondR: 16, mutStd: 0.2, mutProb: 1.0, foodMax: 0, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0 });
+  for (let i = 0; i < 30; i++) g._push(0, 600 + (i % 6) * 3, 400 + Math.floor(i / 6) * 3, 100);
+  const before = g.species.length;
+  g._split();
+  assert.equal(g.species.length, before + 1, `应新增一个物种，${before} -> ${g.species.length}`);
+});
+
+test('新物种基因组与亲代不同（发生了变异）', () => {
+  const g = new ColonyEngine(1200, 800, { seed: 11, seedCount: 0, maxSize: 8, bondR: 16, mutStd: 0.3, mutProb: 1.0, foodMax: 0, foodRegen: 0, metabolism: 0.02, budThreshold: 1e9, mortalityRate: 0 });
+  for (let i = 0; i < 30; i++) g._push(0, 600 + (i % 6) * 3, 400 + Math.floor(i / 6) * 3, 100);
+  const parentAttract = g.species[0].attract;
+  const parentMetab = g.species[0].metabolism;
+  g._split();
+  const child = g.species[g.species.length - 1]; // 最新变异出来的物种
+  const changed = Math.abs(child.attract - parentAttract) > 1e-6 || Math.abs(child.metabolism - parentMetab) > 1e-6;
+  assert.ok(changed, `新物种应偏离亲代：attract ${parentAttract}->${child.attract}, metabolism ${parentMetab}->${child.metabolism}`);
+});
+
+test('变异关闭时，分裂不产生新物种', () => {
+  const g = new ColonyEngine(1200, 800, { seed: 12, seedCount: 0, species: 1, maxSize: 8, bondR: 16, mutStd: 0, mutProb: 1.0, foodMax: 0, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0 });
+  for (let i = 0; i < 30; i++) g._push(0, 600 + (i % 6) * 3, 400 + Math.floor(i / 6) * 3, 100);
+  g._split();
+  assert.equal(g.species.length, 1, 'mutStd=0 不应产生新物种');
+});
+
+test('长期运行：物种数不会超过 maxSpecies，统计自洽', () => {
+  const g = new ColonyEngine(1200, 800, { seed: 13, seedCount: 200, maxSize: 30, mutStd: 0.25, mutProb: 0.6, maxSpecies: 16 });
+  for (let i = 0; i < 4000; i++) g.step();
+  const s = g.stats();
+  assert.ok(s.totalSpecies <= 16, `物种总数应封顶，实际 ${s.totalSpecies}`);
+  assert.ok(s.speciesCount <= s.totalSpecies);
+  assert.ok(s.speciesCount > 0, '应有存活物种');
+});
+
+console.log('\n全部通过：12 项（黏性个体引擎）');

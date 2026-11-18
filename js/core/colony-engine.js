@@ -39,9 +39,8 @@ export class ColonyEngine {
     this.foodCellH = height / this.foodRows;
     this.food = new Float32Array(this.foodCols * this.foodRows);
 
-    // 力与结构参数
-    this.nSpecies = o.species ?? 6;
-    this.attract = o.attract ?? 0.06; // 同色中程吸引强度
+    // 力与结构参数（基线值；每个物种可以有自己的偏离）
+    this.baseAttract = o.attract ?? 0.06; // 同色中程吸引强度
     this.attractR = o.attractR ?? 40; // 吸引作用半径
     this.repel = o.repel ?? 1; // 软核排斥强度
     this.repelR = 8; // 软核半径
@@ -54,10 +53,15 @@ export class ColonyEngine {
     this.foodMax = o.foodMax ?? 2;
     this.foodRegen = o.foodRegen ?? 0.2;
     this.harvest = o.harvest ?? 0.04; // 每步从所在格摄取的能量上限
-    this.metabolism = o.metabolism ?? 0.01; // 每步代谢
+    this.baseMetabolism = o.metabolism ?? 0.01; // 每步代谢（基线）
     this.budThreshold = o.budThreshold ?? 4; // 能量够就出芽
     this.mortalityRate = o.mortalityRate ?? 0.001; // 少量随机死亡，防止系统冻结
     this.maxPop = o.maxPop ?? 3000;
+
+    // 第二步：形态遗传 + 变异
+    this.mutStd = o.mutStd ?? 0; // 变异强度（0 = 关，纯第一步行为）
+    this.mutProb = o.mutProb ?? 0.4; // 分裂时子代变异成新物种的概率
+    this.maxSpecies = o.maxSpecies ?? 48;
 
     this.friction = o.friction ?? 0.06;
     this.splitInterval = o.splitInterval ?? 30; // 每隔多少步做一次分裂
@@ -80,9 +84,26 @@ export class ColonyEngine {
     }
     this.foodTotal = this.food.reduce((a, b) => a + b, 0);
 
+    // 物种：每个物种一个可遗传基因组 { attract, metabolism, color }
+    this.species = [];
+    const n0 = o.species ?? 6;
+    for (let i = 0; i < n0; i++) this._newSpecies();
+
     this.seed(o.seedCount ?? 300);
     this.steps = 0;
     this.individuals = 0;
+  }
+
+  /** 新建一个物种，返回其 id；颜色按黄金角取，保证彼此区分 */
+  _newSpecies(attract, metabolism) {
+    const id = this.species.length;
+    const hue = Math.round((id * 137.508) % 360);
+    this.species.push({
+      attract: attract ?? this.baseAttract,
+      metabolism: metabolism ?? this.baseMetabolism,
+      color: `hsl(${hue}, 70%, 55%)`,
+    });
+    return id;
   }
 
   _grow() {
@@ -112,7 +133,7 @@ export class ColonyEngine {
 
   seed(n) {
     for (let i = 0; i < n; i++) {
-      const type = Math.floor(this.rng() * this.nSpecies);
+      const type = Math.floor(this.rng() * this.species.length);
       this._push(type, this.rng() * this.width, this.rng() * this.height, this.budThreshold * 0.5);
     }
   }
@@ -213,7 +234,7 @@ export class ColonyEngine {
               if (d2 < this.attractR * this.attractR) {
                 const d = Math.sqrt(d2);
                 const t = (d - this.repelR) / (this.attractR - this.repelR);
-                const f = (this.attract * (1 - t)) / d;
+                const f = (this.species[ti].attract * (1 - t)) / d;
                 fx += dx * f;
                 fy += dy * f;
               }
@@ -237,7 +258,7 @@ export class ColonyEngine {
       const eat = Math.min(avail, this.harvest);
       this.food[ci] -= eat;
       this.energy[i] += eat;
-      this.energy[i] -= this.metabolism;
+      this.energy[i] -= this.species[this.type[i]].metabolism;
     }
 
     // 3. 出芽 + 死亡
@@ -399,6 +420,17 @@ export class ColonyEngine {
         const db = (this.x[b] - cx) * ux + (this.y[b] - cy) * uy;
         return da - db;
       });
+
+      // 第二步：变异。子代之一可能变成一个基因组略有偏离的新物种
+      if (this.mutStd > 0 && this.species.length < this.maxSpecies && this.rng() < this.mutProb) {
+        const parentSp = this.species[this.type[members[0]]];
+        const child = this._newSpecies(
+          parentSp.attract * Math.exp(this._gauss() * this.mutStd),
+          parentSp.metabolism * Math.exp(this._gauss() * this.mutStd),
+        );
+        for (let k = half; k < members.length; k++) this.type[members[k]] = child;
+      }
+
       for (let k = 0; k < members.length; k++) {
         const m = members[k];
         const side = k < half ? -1 : 1;
@@ -413,9 +445,14 @@ export class ColonyEngine {
   stats() {
     // 个体数 = 当前连通分量数（只统计，不分裂）
     this.individuals = this._components().length;
+    // 存活物种数 = 还有粒子的物种个数
+    const alive = new Set();
+    for (let i = 0; i < this.count; i++) alive.add(this.type[i]);
     return {
       count: this.count,
       individuals: this.individuals,
+      speciesCount: alive.size,
+      totalSpecies: this.species.length,
       foodTotal: this.foodTotal,
       steps: this.steps,
     };
