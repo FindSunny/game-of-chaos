@@ -1,0 +1,423 @@
+/**
+ * 生命体实验 · 第一步：黏性粒子个体。
+ *
+ * 目标：验证「有形状的结构」能否稳定地自我复制——不做变异、不做选择。
+ *
+ * 规则：
+ *   1. 同色粒子中程吸引 + 近程软核排斥 → 结成有边界的「团块」（= 个体）
+ *   2. 不同色之间轻微排斥 → 各自的团块不粘连
+ *   3. 个体吃食物攒能量；能量够就「出芽」长出一个同色子粒子，团块长大
+ *   4. 团块超过阈值 → 沿质心一分为二（= 繁殖出两个同色子个体）
+ *   5. 能量耗尽粒子死亡，团块随之解体；食物缓慢再生
+ *
+ * 「个体」= 同色且互相靠近的连通分量。稳定自复制的判据：
+ *   团块既不散架、也不无限膨胀，能反复分裂成尺寸相近的新团块。
+ */
+
+const TAU = Math.PI * 2;
+
+function mulberry32(seed) {
+  return function () {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export class ColonyEngine {
+  constructor(width = 1200, height = 800, options = {}) {
+    this.width = width;
+    this.height = height;
+    const o = options;
+
+    // 食物场（粗网格标量）
+    this.foodCols = o.foodCols ?? 60;
+    this.foodRows = o.foodRows ?? 40;
+    this.foodCellW = width / this.foodCols;
+    this.foodCellH = height / this.foodRows;
+    this.food = new Float32Array(this.foodCols * this.foodRows);
+
+    // 力与结构参数
+    this.nSpecies = o.species ?? 6;
+    this.attract = o.attract ?? 0.06; // 同色中程吸引强度
+    this.attractR = o.attractR ?? 40; // 吸引作用半径
+    this.repel = o.repel ?? 1; // 软核排斥强度
+    this.repelR = 8; // 软核半径
+    this.crossRepel = o.crossRepel ?? 0.02; // 异色排斥
+    this.crossR = o.crossR ?? 24; // 异色排斥半径
+    this.bondR = o.bondR ?? 24; // 判定「属于同一个体」的键距
+    this.maxSize = o.maxSize ?? 60; // 团块超过这个尺寸就分裂
+
+    // 能量与繁殖（已调到「食物充足 → 团块稳定繁殖」的平衡点）
+    this.foodMax = o.foodMax ?? 2;
+    this.foodRegen = o.foodRegen ?? 0.2;
+    this.harvest = o.harvest ?? 0.04; // 每步从所在格摄取的能量上限
+    this.metabolism = o.metabolism ?? 0.01; // 每步代谢
+    this.budThreshold = o.budThreshold ?? 4; // 能量够就出芽
+    this.mortalityRate = o.mortalityRate ?? 0.001; // 少量随机死亡，防止系统冻结
+    this.maxPop = o.maxPop ?? 3000;
+
+    this.friction = o.friction ?? 0.06;
+    this.splitInterval = o.splitInterval ?? 30; // 每隔多少步做一次分裂
+
+    this.rng = mulberry32(o.seed ?? 20261118);
+
+    this.capacity = 0;
+    this.count = 0;
+    this.x = [];
+    this.y = [];
+    this.vx = [];
+    this.vy = [];
+    this.type = [];
+    this.energy = [];
+    this.ax = new Float64Array(0);
+    this.ay = new Float64Array(0);
+
+    for (let i = 0; i < this.food.length; i++) {
+      this.food[i] = this.foodMax * (0.4 + 0.6 * this.rng());
+    }
+    this.foodTotal = this.food.reduce((a, b) => a + b, 0);
+
+    this.seed(o.seedCount ?? 300);
+    this.steps = 0;
+    this.individuals = 0;
+  }
+
+  _grow() {
+    const next = Math.max(64, this.capacity * 2);
+    for (const key of ['x', 'y', 'vx', 'vy', 'type', 'energy']) {
+      const a = new Array(next);
+      for (let i = 0; i < this.count; i++) a[i] = this[key][i];
+      this[key] = a;
+    }
+    this.ax = new Float64Array(next);
+    this.ay = new Float64Array(next);
+    this.capacity = next;
+  }
+
+  _push(type, x, y, energy, vx = 0, vy = 0) {
+    if (this.count >= this.maxPop) return -1;
+    if (this.count >= this.capacity) this._grow();
+    const k = this.count++;
+    this.type[k] = type;
+    this.x[k] = x;
+    this.y[k] = y;
+    this.vx[k] = vx;
+    this.vy[k] = vy;
+    this.energy[k] = energy;
+    return k;
+  }
+
+  seed(n) {
+    for (let i = 0; i < n; i++) {
+      const type = Math.floor(this.rng() * this.nSpecies);
+      this._push(type, this.rng() * this.width, this.rng() * this.height, this.budThreshold * 0.5);
+    }
+  }
+
+  _cellIndex(x, y) {
+    let cx = Math.floor(x / this.foodCellW);
+    let cy = Math.floor(y / this.foodCellH);
+    if (cx < 0) cx = 0;
+    else if (cx >= this.foodCols) cx = this.foodCols - 1;
+    if (cy < 0) cy = 0;
+    else if (cy >= this.foodRows) cy = this.foodRows - 1;
+    return cy * this.foodCols + cx;
+  }
+
+  _gauss() {
+    let u = 0;
+    let v = 0;
+    while (u === 0) u = this.rng();
+    while (v === 0) v = this.rng();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v);
+  }
+
+  /** 用键距建桶；供力量计算和连通分量复用 */
+  _buckets() {
+    const cell = this.bondR;
+    const cols = Math.max(1, Math.ceil(this.width / cell));
+    const rows = Math.max(1, Math.ceil(this.height / cell));
+    const buckets = this._bucketsArr || (this._bucketsArr = []);
+    if (buckets.length !== cols * rows) {
+      buckets.length = 0;
+      for (let i = 0; i < cols * rows; i++) buckets.push([]);
+    } else {
+      for (const b of buckets) b.length = 0;
+    }
+    for (let i = 0; i < this.count; i++) {
+      let cx = Math.floor(this.x[i] / cell);
+      let cy = Math.floor(this.y[i] / cell);
+      if (cx < 0) cx = 0;
+      else if (cx >= cols) cx = cols - 1;
+      if (cy < 0) cy = 0;
+      else if (cy >= rows) cy = rows - 1;
+      buckets[cy * cols + cx].push(i);
+    }
+    this._cols = cols;
+    this._rows = rows;
+    return buckets;
+  }
+
+  step() {
+    const count = this.count;
+    const cols = this._cols || 1;
+    const rows = this._rows || 1;
+    const buckets = this._buckets();
+
+    // 1. 力（同色吸引+软核，异色排斥）
+    for (let i = 0; i < count; i++) {
+      const px = this.x[i];
+      const py = this.y[i];
+      const ti = this.type[i];
+      let fx = 0;
+      let fy = 0;
+
+      let gx = Math.floor(px / this.bondR);
+      let gy = Math.floor(py / this.bondR);
+      if (gx < 0) gx = 0;
+      else if (gx >= cols) gx = cols - 1;
+      if (gy < 0) gy = 0;
+      else if (gy >= rows) gy = rows - 1;
+
+      // 吸引半径 40 > 键距 24，需要 ±2 格
+      const reachCells = Math.ceil(this.attractR / this.bondR);
+      for (let oy = -reachCells; oy <= reachCells; oy++) {
+        const cy = gy + oy;
+        if (cy < 0 || cy >= rows) continue;
+        for (let ox = -reachCells; ox <= reachCells; ox++) {
+          const cx = gx + ox;
+          if (cx < 0 || cx >= cols) continue;
+          const bucket = buckets[cy * cols + cx];
+          for (let b = 0; b < bucket.length; b++) {
+            const j = bucket[b];
+            if (j === i) continue;
+            const dx = this.x[j] - px;
+            const dy = this.y[j] - py;
+            const d2 = dx * dx + dy * dy;
+            const same = this.type[j] === ti;
+
+            if (d2 < this.repelR * this.repelR) {
+              // 软核排斥，任何类型都推
+              if (d2 < 1e-6) continue;
+              const d = Math.sqrt(d2);
+              const f = ((d / this.repelR - 1) * this.repel) / d;
+              fx += dx * f;
+              fy += dy * f;
+              continue;
+            }
+
+            if (same) {
+              if (d2 < this.attractR * this.attractR) {
+                const d = Math.sqrt(d2);
+                const t = (d - this.repelR) / (this.attractR - this.repelR);
+                const f = (this.attract * (1 - t)) / d;
+                fx += dx * f;
+                fy += dy * f;
+              }
+            } else if (d2 < this.crossR * this.crossR) {
+              const d = Math.sqrt(d2);
+              const f = -this.crossRepel / d;
+              fx += dx * f;
+              fy += dy * f;
+            }
+          }
+        }
+      }
+      this.ax[i] = fx;
+      this.ay[i] = fy;
+    }
+
+    // 2. 进食 + 代谢
+    for (let i = 0; i < count; i++) {
+      const ci = this._cellIndex(this.x[i], this.y[i]);
+      const avail = this.food[ci];
+      const eat = Math.min(avail, this.harvest);
+      this.food[ci] -= eat;
+      this.energy[i] += eat;
+      this.energy[i] -= this.metabolism;
+    }
+
+    // 3. 出芽 + 死亡
+    for (let i = count - 1; i >= 0; i--) {
+      if (this.energy[i] <= 0 || this.rng() < this.mortalityRate) {
+        const last = this.count - 1;
+        this.x[i] = this.x[last];
+        this.y[i] = this.y[last];
+        this.vx[i] = this.vx[last];
+        this.vy[i] = this.vy[last];
+        this.type[i] = this.type[last];
+        this.energy[i] = this.energy[last];
+        this.ax[i] = this.ax[last];
+        this.ay[i] = this.ay[last];
+        this.count--;
+        continue;
+      }
+      if (this.energy[i] >= this.budThreshold && this.count < this.maxPop) {
+        this.energy[i] *= 0.5;
+        this._push(
+          this.type[i],
+          this.x[i] + (this.rng() - 0.5) * 10,
+          this.y[i] + (this.rng() - 0.5) * 10,
+          this.energy[i],
+          (this.rng() - 0.5) * 0.3,
+          (this.rng() - 0.5) * 0.3,
+        );
+      }
+    }
+
+    // 4. 周期性分裂大团块
+    if (this.steps % this.splitInterval === 0) {
+      this._split();
+    }
+
+    // 5. 积分 + 边界反弹
+    const n = this.count;
+    const damp = 1 - this.friction;
+    const margin = 4;
+    for (let i = 0; i < n; i++) {
+      this.vx[i] = (this.vx[i] + this.ax[i]) * damp;
+      this.vy[i] = (this.vy[i] + this.ay[i]) * damp;
+      this.x[i] += this.vx[i];
+      this.y[i] += this.vy[i];
+      if (this.x[i] < margin) {
+        this.x[i] = margin;
+        this.vx[i] = Math.abs(this.vx[i]);
+      } else if (this.x[i] > this.width - margin) {
+        this.x[i] = this.width - margin;
+        this.vx[i] = -Math.abs(this.vx[i]);
+      }
+      if (this.y[i] < margin) {
+        this.y[i] = margin;
+        this.vy[i] = Math.abs(this.vy[i]);
+      } else if (this.y[i] > this.height - margin) {
+        this.y[i] = this.height - margin;
+        this.vy[i] = -Math.abs(this.vy[i]);
+      }
+    }
+
+    // 6. 食物再生
+    let total = 0;
+    for (let c = 0; c < this.food.length; c++) {
+      let v = this.food[c] + this.foodRegen;
+      if (v > this.foodMax) v = this.foodMax;
+      this.food[c] = v;
+      total += v;
+    }
+    this.foodTotal = total;
+    this.steps++;
+
+    return { count: n, foodTotal: total };
+  }
+
+  /** 连通分量：同色且键距内的粒子算一个个体。返回 [[粒子索引], ...] */
+  _components() {
+    const n = this.count;
+    if (n === 0) return [];
+
+    const parent = new Int32Array(n);
+    for (let i = 0; i < n; i++) parent[i] = i;
+    const find = (a) => {
+      while (parent[a] !== a) {
+        parent[a] = parent[parent[a]];
+        a = parent[a];
+      }
+      return a;
+    };
+    const union = (a, b) => {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent[rb] = ra;
+    };
+
+    const buckets = this._buckets();
+    const cols = this._cols;
+    const rows = this._rows;
+    for (let i = 0; i < n; i++) {
+      const gx = Math.min(cols - 1, Math.max(0, Math.floor(this.x[i] / this.bondR)));
+      const gy = Math.min(rows - 1, Math.max(0, Math.floor(this.y[i] / this.bondR)));
+      for (let oy = -1; oy <= 1; oy++) {
+        const cy = gy + oy;
+        if (cy < 0 || cy >= rows) continue;
+        for (let ox = -1; ox <= 1; ox++) {
+          const cx = gx + ox;
+          if (cx < 0 || cx >= cols) continue;
+          const bucket = buckets[cy * cols + cx];
+          for (let b = 0; b < bucket.length; b++) {
+            const j = bucket[b];
+            if (j <= i) continue;
+            if (this.type[j] !== this.type[i]) continue;
+            const dx = this.x[j] - this.x[i];
+            const dy = this.y[j] - this.y[i];
+            if (dx * dx + dy * dy < this.bondR * this.bondR) union(i, j);
+          }
+        }
+      }
+    }
+
+    const comps = new Map();
+    for (let i = 0; i < n; i++) {
+      const r = find(i);
+      let arr = comps.get(r);
+      if (!arr) {
+        arr = [];
+        comps.set(r, arr);
+      }
+      arr.push(i);
+    }
+    return [...comps.values()];
+  }
+
+  /** 把超过 maxSize 的团块沿质心一分为二 */
+  _split() {
+    const comps = this._components();
+    let individualCount = 0;
+    for (const members of comps) {
+      if (members.length <= this.maxSize) {
+        individualCount++;
+        continue;
+      }
+      let cx = 0;
+      let cy = 0;
+      for (const m of members) {
+        cx += this.x[m];
+        cy += this.y[m];
+      }
+      cx /= members.length;
+      cy /= members.length;
+
+      const angle = this.rng() * TAU;
+      const ux = Math.cos(angle);
+      const uy = Math.sin(angle);
+      const imp = 1.2;
+
+      const half = members.length >> 1;
+      members.sort((a, b) => {
+        const da = (this.x[a] - cx) * ux + (this.y[a] - cy) * uy;
+        const db = (this.x[b] - cx) * ux + (this.y[b] - cy) * uy;
+        return da - db;
+      });
+      for (let k = 0; k < members.length; k++) {
+        const m = members[k];
+        const side = k < half ? -1 : 1;
+        this.vx[m] += side * ux * imp;
+        this.vy[m] += side * uy * imp;
+      }
+      individualCount += 2;
+    }
+    this.individuals = individualCount;
+  }
+
+  stats() {
+    // 个体数 = 当前连通分量数（只统计，不分裂）
+    this.individuals = this._components().length;
+    return {
+      count: this.count,
+      individuals: this.individuals,
+      foodTotal: this.foodTotal,
+      steps: this.steps,
+    };
+  }
+}

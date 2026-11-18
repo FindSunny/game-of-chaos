@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>生命体实验 · 黏性粒子个体</title>
+    <link rel="stylesheet" href="css/style.css" />
+    <style>
+      body {
+        background: #05080c;
+      }
+      .evo-grid {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        height: 100vh;
+        overflow: hidden;
+      }
+      .evo-side {
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--line);
+        background: var(--panel);
+        overflow: hidden;
+      }
+      .evo-brand {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .evo-brand h1 {
+        margin: 0;
+        font-size: 15px;
+        letter-spacing: 0.08em;
+      }
+      .evo-brand a {
+        color: var(--muted);
+        font-size: 12px;
+        text-decoration: none;
+      }
+      .evo-brand a:hover {
+        color: var(--text);
+      }
+      .evo-scroll {
+        flex: 1;
+        overflow-y: auto;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .evo-stage {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+      }
+      #evo-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        cursor: grab;
+      }
+      .legend {
+        position: absolute;
+        left: 14px;
+        top: 12px;
+        font-size: 11px;
+        color: rgba(226, 232, 240, 0.85);
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="evo-grid">
+      <aside class="evo-side">
+        <div class="evo-brand">
+          <h1>生命体实验 · 第一步</h1>
+          <a href="index.html">← 返回 Game of Chaos</a>
+        </div>
+
+        <div class="evo-scroll">
+          <div class="transport">
+            <button id="btn-play" class="btn primary" type="button">▶ 播放</button>
+            <button id="btn-step" class="btn" type="button">单步</button>
+            <button id="btn-reset" class="btn" type="button">重置</button>
+          </div>
+
+          <section class="block">
+            <h2>状态</h2>
+            <dl class="stats">
+              <div><dt>粒子数</dt><dd id="stat-pop" class="mono">0</dd></div>
+              <div><dt>个体数</dt><dd id="stat-ind" class="mono">0</dd></div>
+              <div><dt>世代</dt><dd id="stat-gen" class="mono">0</dd></div>
+              <div><dt>食物总量</dt><dd id="stat-food" class="mono">0</dd></div>
+            </dl>
+          </section>
+
+          <section class="block">
+            <h2>规则参数</h2>
+            <div class="row">
+              <span class="slabel" title="同色粒子的物种数量（每种一个颜色）">物种数</span>
+              <select id="species" class="mono">
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6" selected>6</option>
+                <option value="8">8</option>
+              </select>
+            </div>
+            <div class="row">
+              <span class="slabel" title="团块粒子数超过这个值就一分为二">分裂尺寸</span>
+              <input id="max-size" type="range" min="10" max="150" step="5" value="60" />
+              <span id="max-size-val" class="value mono">60</span>
+            </div>
+            <div class="row">
+              <span class="slabel" title="每步每格食物再生量；决定资源松紧">食物再生</span>
+              <input id="food-regen" type="range" min="0" max="500" step="5" value="200" />
+              <span id="food-regen-val" class="value mono">0.200</span>
+            </div>
+            <div class="row">
+              <span class="slabel" title="每步随机死亡概率；制造新老更替">死亡率</span>
+              <input id="mortality" type="range" min="0" max="10" step="1" value="1" />
+              <span id="mortality-val" class="value mono">0.001</span>
+            </div>
+            <div class="row">
+              <span class="slabel">速度</span>
+              <input id="speed" type="range" min="1" max="10" step="1" value="2" />
+              <span id="speed-val" class="value mono">2 步/帧</span>
+            </div>
+          </section>
+
+          <section class="block">
+            <h2>规则说明</h2>
+            <p class="hint">
+              每个<b>同色团块</b>就是一个「个体」。<br />
+              同色粒子互相吸引成团（有边界），异色之间互斥。<br />
+              个体吃绿色食物攒能量 → 出芽长大 → 超过分裂尺寸一分为二。<br />
+              能量耗尽粒子死亡，团块解体；食物缓慢再生。<br />
+              <b>这一步只验证：结构能否稳定地自我复制</b>，还没有变异和选择。
+            </p>
+          </section>
+        </div>
+      </aside>
+
+      <main class="evo-stage">
+        <canvas id="evo-canvas"></canvas>
+        <div class="legend">同色 = 同一个体；绿色 = 食物场</div>
+      </main>
+    </div>
+
+    <script type="module">
+      import { ColonyEngine } from './js/core/colony-engine.js';
+
+      const $ = (id) => document.getElementById(id);
+      const canvas = $('evo-canvas');
+      const ctx = canvas.getContext('2d');
+
+      const SPECIES_COLORS = [
+        '#EF4444', '#F97316', '#EAB308', '#22C55E', '#14B8A6',
+        '#06B6D4', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B',
+      ];
+
+      let engine = new ColonyEngine(1200, 800);
+
+      const cam = { zoom: 1, ox: 0, oy: 0 };
+      function fit() {
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        cam.zoom = Math.min(w / engine.width, h / engine.height) * 0.98;
+        cam.ox = (w - engine.width * cam.zoom) / 2;
+        cam.oy = (h - engine.height * cam.zoom) / 2;
+      }
+
+      const foodLayer = document.createElement('canvas');
+      foodLayer.width = engine.foodCols;
+      foodLayer.height = engine.foodRows;
+      const fctx = foodLayer.getContext('2d');
+
+      function render() {
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        if (!w || !h) return;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+          canvas.width = Math.round(w * dpr);
+          canvas.height = Math.round(h * dpr);
+        }
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.fillStyle = '#0a1119';
+        ctx.fillRect(0, 0, w, h);
+
+        // 食物热图：低分辨率离屏 + 双线性放大 → 平滑的营养场
+        const img = fctx.createImageData(engine.foodCols, engine.foodRows);
+        for (let i = 0; i < engine.food.length; i++) {
+          const v = engine.food[i] / engine.foodMax;
+          const o = i * 4;
+          img.data[o] = 20;
+          img.data[o + 1] = 70 + 160 * v;
+          img.data[o + 2] = 40;
+          img.data[o + 3] = Math.round(30 + 170 * v);
+        }
+        fctx.putImageData(img, 0, 0);
+        ctx.imageSmoothingEnabled = true;
+        ctx.globalAlpha = 0.85;
+        ctx.drawImage(
+          foodLayer,
+          0, 0, engine.foodCols, engine.foodRows,
+          cam.ox, cam.oy, engine.width * cam.zoom, engine.height * cam.zoom,
+        );
+        ctx.globalAlpha = 1;
+
+        // 粒子：按物种上色的小圆点
+        const r = Math.max(1.5, 3.5 * cam.zoom);
+        for (let i = 0; i < engine.count; i++) {
+          ctx.fillStyle = SPECIES_COLORS[engine.type[i] % SPECIES_COLORS.length];
+          const px = cam.ox + engine.x[i] * cam.zoom;
+          const py = cam.oy + engine.y[i] * cam.zoom;
+          ctx.beginPath();
+          ctx.arc(px, py, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      function syncStats() {
+        const s = engine.stats();
+        $('stat-pop').textContent = s.count;
+        $('stat-ind').textContent = s.individuals;
+        $('stat-gen').textContent = s.steps;
+        $('stat-food').textContent = s.foodTotal.toFixed(0);
+      }
+
+      let running = true;
+      let speed = 2;
+
+      function loop() {
+        if (running) {
+          for (let k = 0; k < speed; k++) engine.step();
+        }
+        render();
+        syncStats();
+        requestAnimationFrame(loop);
+      }
+
+      function applyParams() {
+        engine.nSpecies = Number($('species').value);
+        engine.maxSize = Number($('max-size').value);
+        engine.foodRegen = Number($('food-regen').value) / 1000;
+        engine.mortalityRate = Number($('mortality').value) / 1000;
+      }
+
+      $('btn-play').addEventListener('click', () => {
+        running = !running;
+        $('btn-play').textContent = running ? '⏸ 暂停' : '▶ 播放';
+      });
+      $('btn-step').addEventListener('click', () => {
+        engine.step();
+        render();
+        syncStats();
+      });
+      $('btn-reset').addEventListener('click', () => {
+        engine = new ColonyEngine(1200, 800, { species: Number($('species').value) });
+        applyParams();
+        fit();
+      });
+
+      function bindRange(id, valId, scale, fmt) {
+        const el = $(id);
+        el.addEventListener('input', () => {
+          $(valId).textContent = fmt(Number(el.value) * scale);
+          applyParams();
+        });
+      }
+      bindRange('max-size', 'max-size-val', 1, (v) => String(v));
+      bindRange('food-regen', 'food-regen-val', 0.001, (v) => v.toFixed(3));
+      bindRange('mortality', 'mortality-val', 0.001, (v) => v.toFixed(3));
+      $('speed').addEventListener('input', () => {
+        speed = Number($('speed').value);
+        $('speed-val').textContent = `${speed} 步/帧`;
+      });
+      $('species').addEventListener('change', () => {
+        engine = new ColonyEngine(1200, 800, { species: Number($('species').value) });
+        applyParams();
+      });
+
+      canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        const z = cam.zoom * factor;
+        cam.ox = mx - ((mx - cam.ox) / cam.zoom) * z;
+        cam.oy = my - ((my - cam.oy) / cam.zoom) * z;
+        cam.zoom = z;
+      }, { passive: false });
+
+      let dragging = false;
+      let lastX = 0;
+      let lastY = 0;
+      canvas.addEventListener('pointerdown', (e) => {
+        dragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        canvas.setPointerCapture(e.pointerId);
+        canvas.style.cursor = 'grabbing';
+      });
+      canvas.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        cam.ox += e.clientX - lastX;
+        cam.oy += e.clientY - lastY;
+        lastX = e.clientX;
+        lastY = e.clientY;
+      });
+      canvas.addEventListener('pointerup', () => {
+        dragging = false;
+        canvas.style.cursor = 'grab';
+      });
+
+      const ro = new ResizeObserver(() => {
+        fit();
+        render();
+      });
+      ro.observe(canvas);
+
+      $('btn-play').textContent = running ? '⏸ 暂停' : '▶ 播放';
+      fit();
+      requestAnimationFrame(loop);
+    </script>
+  </body>
+</html>
