@@ -28,7 +28,7 @@ test('类型都在合法范围内', () => {
 section('黏性与分裂');
 
 test('同色粒子互相吸引（会靠近）', () => {
-  const g = new ColonyEngine(1200, 800, { seed: 2, seedCount: 2, foodMax: 0, foodRegen: 0, metabolism: 0, budThreshold: 1e9 });
+  const g = new ColonyEngine(1200, 800, { seed: 2, seedCount: 2, foodMax: 0, foodRegen: 0, metabolism: 0, budThreshold: 1e9, motility: 0 });
   // 两个同色粒子，距离 20（在吸引半径内）
   g.x[0] = 600;
   g.y[0] = 400;
@@ -128,7 +128,7 @@ test('长期运行：物种数不会超过 maxSpecies，统计自洽', () => {
 console.log('\n趋化（觅食迁移）');
 
 test('趋化开启时，团块会往食物浓度高的方向迁移', () => {
-  const g = new ColonyEngine(1200, 800, { seed: 1, seedCount: 0, species: 1, chemotaxis: 0.5, foodMax: 2, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, friction: 0.05 });
+  const g = new ColonyEngine(1200, 800, { seed: 1, seedCount: 0, species: 1, chemotaxis: 0.5, foodMax: 2, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, friction: 0.05, motility: 0 });
   // 静态食物梯度：左贫右富
   for (let c = 0; c < g.food.length; c++) {
     const cx = c % g.foodCols;
@@ -147,7 +147,7 @@ test('趋化开启时，团块会往食物浓度高的方向迁移', () => {
 });
 
 test('趋化关闭时，团块几乎不动', () => {
-  const g = new ColonyEngine(1200, 800, { seed: 1, seedCount: 0, species: 1, chemotaxis: 0, foodMax: 2, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, friction: 0.05 });
+  const g = new ColonyEngine(1200, 800, { seed: 1, seedCount: 0, species: 1, chemotaxis: 0, foodMax: 2, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, friction: 0.05, motility: 0 });
   for (let i = 0; i < 8; i++) g._push(0, 80 + (i % 4) * 5, 400 + Math.floor(i / 4) * 5, 100);
   const centroid = () => {
     let s = 0;
@@ -174,7 +174,7 @@ test('键矩阵对角线为 1，非对角在合法范围内', () => {
 
 test('异色正键吸引、负键排斥', () => {
   // 正键：互相靠近
-  const a = new ColonyEngine(1200, 800, { seed: 2, seedCount: 0, species: 2, crossAttract: 0.5, crossR: 40, foodMax: 0, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, chemotaxis: 0 });
+  const a = new ColonyEngine(1200, 800, { seed: 2, seedCount: 0, species: 2, crossAttract: 0.5, crossR: 40, foodMax: 0, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, chemotaxis: 0, motility: 0 });
   a.bond[0][1] = 1;
   a.bond[1][0] = 1;
   a._push(0, 400, 400, 100);
@@ -186,7 +186,7 @@ test('异色正键吸引、负键排斥', () => {
   assert.ok(d1 < d0, `正键应靠近 ${d0.toFixed(1)} -> ${d1.toFixed(1)}`);
 
   // 负键：互相排斥
-  const b = new ColonyEngine(1200, 800, { seed: 3, seedCount: 0, species: 2, crossAttract: 0.5, crossR: 40, foodMax: 0, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, chemotaxis: 0 });
+  const b = new ColonyEngine(1200, 800, { seed: 3, seedCount: 0, species: 2, crossAttract: 0.5, crossR: 40, foodMax: 0, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, chemotaxis: 0, motility: 0 });
   b.bond[0][1] = -0.6;
   b.bond[1][0] = -0.6;
   b._push(0, 400, 400, 100);
@@ -204,4 +204,36 @@ test('重掷矩阵只改非对角，对角线保持 1', () => {
   for (let i = 0; i < g.species.length; i++) assert.equal(g.bond[i][i], 1);
 });
 
-console.log('\n全部通过：18 项（黏性个体引擎）');
+console.log('\n行为表型（游动 / 捕食）');
+
+test('游动速度（motility）越大，团块漂移越远', () => {
+  const drift = (mot) => {
+    const g = new ColonyEngine(1200, 800, { seed: 5, seedCount: 0, species: 1, motility: mot, chemotaxis: 0, foodMax: 0, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, friction: 0.06 });
+    for (let i = 0; i < 20; i++) g._push(0, 600 + (i % 5) * 4, 400 + Math.floor(i / 5) * 4, 100);
+    const c = () => {
+      let s = 0;
+      for (let i = 0; i < g.count; i++) s += g.x[i];
+      return s / g.count;
+    };
+    const x0 = c();
+    for (let i = 0; i < 200; i++) g.step();
+    return Math.abs(c() - x0);
+  };
+  const dLow = drift(0.02);
+  const dHigh = drift(0.2);
+  assert.ok(dHigh > dLow, `高速应漂移更远：低 ${dLow.toFixed(1)} vs 高 ${dHigh.toFixed(1)}`);
+});
+
+test('捕食：攻击性物种会吃掉异色猎物', () => {
+  const g = new ColonyEngine(1200, 800, { seed: 6, seedCount: 0, species: 2, eatR: 20, biteGain: 5, foodMax: 0, foodRegen: 0, metabolism: 0, budThreshold: 1e9, mortalityRate: 0, chemotaxis: 0, motility: 0, crossAttract: 0 });
+  g.species[0].aggression = 1.0; // 捕食者
+  g.species[1].aggression = 0; // 猎物
+  for (let i = 0; i < 30; i++) g._push(1, 600 + (i % 6) * 3, 400 + Math.floor(i / 6) * 3, 100);
+  g._push(0, 600, 400, 100); // 捕食者混入猎物群
+  for (let i = 0; i < 200; i++) g.step();
+  let prey = 0;
+  for (let i = 0; i < g.count; i++) if (g.type[i] === 1) prey++;
+  assert.ok(prey < 30, `猎物应被吃掉一部分：30 -> ${prey}`);
+});
+
+console.log('\n全部通过：20 项（黏性个体引擎）');

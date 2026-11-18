@@ -133,6 +133,16 @@
               <span id="chemo-val" class="value mono">0.15</span>
             </div>
             <div class="row">
+              <span class="slabel" title="物种基线游动速度；每个物种有随机偏离">游动</span>
+              <input id="motility" type="range" min="0" max="30" step="1" value="15" />
+              <span id="motility-val" class="value mono">0.15</span>
+            </div>
+            <div class="row">
+              <span class="slabel" title="物种基线攻击性（捕食概率上限）；每个物种有随机偏离">攻击性</span>
+              <input id="aggression" type="range" min="0" max="100" step="5" value="25" />
+              <span id="aggression-val" class="value mono">0.25</span>
+            </div>
+            <div class="row">
               <span class="slabel" title="不同物种之间的相互作用强度；每对的正负由键矩阵决定">异色作用</span>
               <input id="cross" type="range" min="0" max="30" step="1" value="10" />
               <span id="cross-val" class="value mono">0.10</span>
@@ -156,8 +166,9 @@
               能量耗尽粒子死亡，团块解体；食物缓慢再生。<br />
               <b>第二步：形态遗传 + 变异 + 选择。</b><br />
               团块分裂时，子代有一定概率变成基因组略有偏离的<b>新物种（新颜色）</b>。<br />
-              不同物种之间还有一张<b>键矩阵</b>：每对物种正吸引、负排斥（像粒子生命）。<br />
-              在食物竞争里此消彼长——看物种是分化、共生还是灭绝。
+              物种还有两张牌：<b>游动速度</b>（快的到处窜、慢的蹲着）和<b>攻击性</b>（高的捕食异色）。<br />
+              不同物种之间还有<b>键矩阵</b>：正吸引、负排斥。<br />
+              游动/攻击性改动后点「重置」立即生效，否则只影响之后变异出的新物种。
             </p>
           </section>
         </div>
@@ -282,6 +293,8 @@
         engine.mortalityRate = Number($('mortality').value) / 1000;
         engine.chemotaxis = Number($('chemo').value) / 100;
         engine.crossAttract = Number($('cross').value) / 100;
+        engine.baseMotility = Number($('motility').value) / 100;
+        engine.baseAggression = Number($('aggression').value) / 100;
       }
 
       $('btn-play').addEventListener('click', () => {
@@ -294,7 +307,11 @@
         syncStats();
       });
       $('btn-reset').addEventListener('click', () => {
-        engine = new ColonyEngine(1200, 800, { species: Number($('species').value) });
+        engine = new ColonyEngine(1200, 800, {
+          species: Number($('species').value),
+          motility: Number($('motility').value) / 100,
+          aggression: Number($('aggression').value) / 100,
+        });
         applyParams();
         fit();
       });
@@ -312,6 +329,8 @@
       bindRange('mut-std', 'mut-std-val', 0.01, (v) => v.toFixed(2));
       bindRange('chemo', 'chemo-val', 0.01, (v) => v.toFixed(2));
       bindRange('cross', 'cross-val', 0.01, (v) => v.toFixed(2));
+      bindRange('motility', 'motility-val', 0.01, (v) => v.toFixed(2));
+      bindRange('aggression', 'aggression-val', 0.01, (v) => v.toFixed(2));
       $('btn-bonds').addEventListener('click', () => {
         engine.randomizeBonds();
       });
@@ -320,7 +339,11 @@
         $('speed-val').textContent = `${speed} 步/帧`;
       });
       $('species').addEventListener('change', () => {
-        engine = new ColonyEngine(1200, 800, { species: Number($('species').value) });
+        engine = new ColonyEngine(1200, 800, {
+          species: Number($('species').value),
+          motility: Number($('motility').value) / 100,
+          aggression: Number($('aggression').value) / 100,
+        });
         applyParams();
       });
 

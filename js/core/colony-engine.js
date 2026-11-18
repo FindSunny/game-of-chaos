@@ -64,6 +64,12 @@ export class ColonyEngine {
     this.mutProb = o.mutProb ?? 0.4; // 分裂时子代变异成新物种的概率
     this.maxSpecies = o.maxSpecies ?? 48;
 
+    // 第三步：可见的行为表型
+    this.baseMotility = o.motility ?? 0.15; // 游动速度（自推进力）
+    this.baseAggression = o.aggression ?? 0.25; // 攻击性（捕食概率上限）
+    this.eatR = o.eatR ?? 6; // 捕食接触半径
+    this.biteGain = o.biteGain ?? 2; // 咬一口获得的能量
+
     this.friction = o.friction ?? 0.06;
     this.splitInterval = o.splitInterval ?? 30; // 每隔多少步做一次分裂
     this.chemotaxis = o.chemotaxis ?? 0.15; // 趋化强度：往食物浓度高的方向游
@@ -78,6 +84,7 @@ export class ColonyEngine {
     this.vy = [];
     this.type = [];
     this.energy = [];
+    this.angle = []; // 游动朝向（每粒子，自推进用）
     this.ax = new Float64Array(0);
     this.ay = new Float64Array(0);
 
@@ -118,12 +125,14 @@ export class ColonyEngine {
   }
 
   /** 新建一个物种，返回其 id；颜色按黄金角取，保证彼此区分 */
-  _newSpecies(attract, metabolism) {
+  _newSpecies(attract, metabolism, motility, aggression) {
     const id = this.species.length;
     const hue = Math.round((id * 137.508) % 360);
     this.species.push({
       attract: attract ?? this.baseAttract,
       metabolism: metabolism ?? this.baseMetabolism,
+      motility: motility ?? this.baseMotility * (0.4 + this.rng() * 0.8),
+      aggression: aggression ?? this.baseAggression * this.rng(),
       color: `hsl(${hue}, 70%, 55%)`,
     });
     // 扩展键矩阵：新物种与已有物种各得一个随机键，对角线 = 1
@@ -137,7 +146,7 @@ export class ColonyEngine {
 
   _grow() {
     const next = Math.max(64, this.capacity * 2);
-    for (const key of ['x', 'y', 'vx', 'vy', 'type', 'energy']) {
+    for (const key of ['x', 'y', 'vx', 'vy', 'type', 'energy', 'angle']) {
       const a = new Array(next);
       for (let i = 0; i < this.count; i++) a[i] = this[key][i];
       this[key] = a;
@@ -157,6 +166,7 @@ export class ColonyEngine {
     this.vx[k] = vx;
     this.vy[k] = vy;
     this.energy[k] = energy;
+    this.angle[k] = this.rng() * TAU;
     return k;
   }
 
@@ -301,6 +311,14 @@ export class ColonyEngine {
         }
       }
 
+      // 自推进（游动）：物种 motility 越大游得越快；朝向缓慢随机旋转
+      const mot = this.species[ti].motility;
+      if (mot > 0) {
+        fx += Math.cos(this.angle[i]) * mot;
+        fy += Math.sin(this.angle[i]) * mot;
+        this.angle[i] += this._gauss() * 0.4;
+      }
+
       this.ax[i] = fx;
       this.ay[i] = fy;
     }
@@ -315,6 +333,43 @@ export class ColonyEngine {
       this.energy[i] -= this.species[this.type[i]].metabolism;
     }
 
+    // 2.5 捕食：攻击性物种咬异色粒子
+    const eatR2 = this.eatR * this.eatR;
+    for (let i = 0; i < count; i++) {
+      const agg = this.species[this.type[i]].aggression;
+      if (agg <= 0) continue;
+      const px = this.x[i];
+      const py = this.y[i];
+      let gx = Math.floor(px / this.bondR);
+      let gy = Math.floor(py / this.bondR);
+      if (gx < 0) gx = 0;
+      else if (gx >= cols) gx = cols - 1;
+      if (gy < 0) gy = 0;
+      else if (gy >= rows) gy = rows - 1;
+      search: {
+        for (let oy = -1; oy <= 1; oy++) {
+          const cy = gy + oy;
+          if (cy < 0 || cy >= rows) continue;
+          for (let ox = -1; ox <= 1; ox++) {
+            const cx = gx + ox;
+            if (cx < 0 || cx >= cols) continue;
+            const bucket = buckets[cy * cols + cx];
+            for (let b = 0; b < bucket.length; b++) {
+              const j = bucket[b];
+              if (j === i || this.type[j] === this.type[i]) continue;
+              const dx = this.x[j] - px;
+              const dy = this.y[j] - py;
+              if (dx * dx + dy * dy < eatR2 && this.rng() < agg) {
+                this.energy[i] += this.biteGain;
+                this.energy[j] = -1; // 下一遍死亡
+                break search;
+              }
+            }
+          }
+        }
+      }
+    }
+
     // 3. 出芽 + 死亡
     for (let i = count - 1; i >= 0; i--) {
       if (this.energy[i] <= 0 || this.rng() < this.mortalityRate) {
@@ -325,6 +380,7 @@ export class ColonyEngine {
         this.vy[i] = this.vy[last];
         this.type[i] = this.type[last];
         this.energy[i] = this.energy[last];
+        this.angle[i] = this.angle[last];
         this.ax[i] = this.ax[last];
         this.ay[i] = this.ay[last];
         this.count--;
@@ -478,9 +534,12 @@ export class ColonyEngine {
       // 第二步：变异。子代之一可能变成一个基因组略有偏离的新物种
       if (this.mutStd > 0 && this.species.length < this.maxSpecies && this.rng() < this.mutProb) {
         const parentSp = this.species[this.type[members[0]]];
+        const aggr = Math.max(0, Math.min(1, parentSp.aggression + this._gauss() * this.mutStd * 0.5));
         const child = this._newSpecies(
           parentSp.attract * Math.exp(this._gauss() * this.mutStd),
           parentSp.metabolism * Math.exp(this._gauss() * this.mutStd),
+          Math.max(0.01, Math.min(0.3, parentSp.motility * Math.exp(this._gauss() * this.mutStd))),
+          aggr,
         );
         for (let k = half; k < members.length; k++) this.type[members[k]] = child;
       }
